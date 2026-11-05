@@ -1,0 +1,9 @@
+{
+  "name": "jjrpf-com",
+  "compatibility_date": "2026-11-03",
+  "assets": {
+    "directory": "."
+  },
+  // Required by `wrangler preview`, which non-production branch builds run.
+  "previews": {}
+}
