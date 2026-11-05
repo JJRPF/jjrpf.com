@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Suspend to RAM on the M2 Pro | Justin Pfister</title>
+<meta name="description" content="Live status of suspend to RAM for Linux on the 14-inch MacBook Pro M2 Pro (J414s): progress, test runs and research.">
+<meta property="og:title" content="Suspend to RAM on the M2 Pro">
+<meta property="og:description" content="Teaching Linux to really sleep on Apple Silicon. Live progress from the Aurora-DeepIdle repo.">
+<meta property="og:url" content="https://jjrpf.com/S2R/">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='11' y='4' width='10' height='24' rx='1.5' fill='%23F2C12E'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,700;12..96,800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #EEF1EC;
+    --surface: #E2E7E0;
+    --ink: #17201C;
+    --muted: #56625B;
+    --line: #C3CCC3;
+    --moss: #2E5E45;
+    --blaze: #F2C12E;
+    --contour: #9DB0A2;
+    --rust: #A8522F;
+    --track: #D3DAD2;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141A17; --surface: #1C2420; --ink: #E4EAE3; --muted: #97A49B;
+      --line: #2F3A34; --moss: #8FC4A3; --blaze: #E8B828; --contour: #33443A;
+      --rust: #DB8A68; --track: #26302B;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141A17; --surface: #1C2420; --ink: #E4EAE3; --muted: #97A49B;
+    --line: #2F3A34; --moss: #8FC4A3; --blaze: #E8B828; --contour: #33443A;
+    --rust: #DB8A68; --track: #26302B;
+    color-scheme: dark;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  :root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  html { -webkit-text-size-adjust: 100%; scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 4rem); }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    font-optical-sizing: auto;
+    font-size: 1.0625rem;
+    line-height: 1.6;
+  }
+  a { color: inherit; text-decoration-color: var(--line); text-underline-offset: 0.2em; text-decoration-thickness: 1.5px; }
+  a:hover { text-decoration-color: var(--moss); }
+  a:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visible { outline: 2px solid var(--moss); outline-offset: 3px; border-radius: 2px; }
+  code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.86em; background: var(--surface); padding: 0.1em 0.35em; border-radius: 4px; overflow-wrap: anywhere; }
+
+  .wrap { max-width: 44rem; margin: 0 auto; padding-inline: 1.5rem; }
+  .wide { max-width: 56rem; }
+
+  /* Hero: same topo map as the home page, with the S2R route drawn across it */
+  .hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); }
+  .topo {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    color: var(--contour);
+    -webkit-mask-image: linear-gradient(100deg, transparent 18%, #000 70%);
+            mask-image: linear-gradient(100deg, transparent 18%, #000 70%);
+    pointer-events: none;
+  }
+  .topo path { fill: none; stroke: currentColor; stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .topo path.index { stroke-width: 1.8; }
+  .hero .wrap { position: relative; padding-top: clamp(1.5rem, 4vw, 2rem); padding-bottom: clamp(1.5rem, 5vw, 2.5rem); }
+  .home { display: inline-block; color: var(--muted); font-size: 0.95rem; text-decoration: none; margin-bottom: clamp(2.5rem, 9vw, 5rem); }
+  .home:hover { color: var(--ink); }
+  h1 {
+    font-size: clamp(2.5rem, 9vw, 4.75rem);
+    font-weight: 800;
+    line-height: 0.95;
+    letter-spacing: -0.035em;
+    margin: 0 0 1.4rem;
+  }
+  .intro { font-size: 1.25rem; line-height: 1.5; max-width: 34rem; margin: 0 0 1.5rem; }
+  .where { color: var(--muted); font-size: 0.95rem; margin: 0; display: flex; flex-wrap: wrap; gap: 0.4rem 1.25rem; }
+  .live::before { content: ""; display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--contour); margin-right: 0.45rem; vertical-align: 0.08em; }
+  .live[data-on="1"]::before { background: var(--moss); }
+
+  /* The route */
+  .route { position: relative; margin-top: clamp(2.5rem, 7vw, 3.5rem); }
+  .route-canvas { position: relative; height: clamp(7rem, 22vw, 10rem); }
+  .route-canvas svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .route .ground { fill: var(--surface); opacity: 0.85; }
+  .route .ahead { fill: none; stroke: var(--muted); stroke-width: 2; stroke-dasharray: 2 6; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .route .done { fill: none; stroke: var(--moss); stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  .route .tick { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .marker { position: absolute; transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+  .marker b { font-size: clamp(1.6rem, 5vw, 2.25rem); font-weight: 800; letter-spacing: -0.03em; line-height: 1; margin-bottom: 0.4rem; background: var(--bg); padding: 0.1rem 0.35rem; border-radius: 4px; }
+  .marker i { display: block; width: 0.7rem; height: 1.6rem; background: var(--blaze); border-radius: 2px; margin-bottom: 0.25rem; box-shadow: 0 0 0 3px var(--bg); }
+  .stops { display: grid; grid-template-columns: repeat(7, 1fr); margin-top: 0.6rem; font-size: 0.85rem; color: var(--muted); }
+  .stops span { padding-right: 0.4rem; line-height: 1.3; }
+  .stops span b { display: block; color: var(--ink); font-weight: 700; }
+  .stops span[data-state="active"] b { color: var(--moss); }
+  @media (max-width: 40rem) { .stops em { display: none; } }
+  .stops em { font-style: normal; }
+
+  /* View switch */
+  .switch { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); padding-top: env(safe-area-inset-top, 0px); }
+  .switch .wrap { display: flex; gap: 1.5rem; align-items: center; }
+  .switch button {
+    appearance: none; background: none; border: 0; color: var(--muted); font: inherit; font-weight: 700;
+    padding: 0.85rem 0 0.75rem; border-bottom: 3px solid transparent; cursor: pointer; margin-bottom: -1px;
+  }
+  .switch button:hover { color: var(--ink); }
+  .switch button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--blaze); }
+  .switch .stamp { margin-left: auto; color: var(--muted); font-size: 0.85rem; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+  section { padding: 3.25rem 0 0.25rem; }
+  h2 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.015em; margin: 0 0 0.5rem; }
+  h2 + .lede { color: var(--muted); margin: 0 0 1.5rem; max-width: 36rem; }
+  h3 { font-size: 1.1rem; font-weight: 700; margin: 0 0 0.25rem; letter-spacing: -0.005em; }
+  .muted { color: var(--muted); }
+  .note { color: var(--muted); font-size: 0.9rem; }
+
+  /* Phase rows */
+  .phases { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .phases > li { display: grid; grid-template-columns: 2rem 1fr 9.5rem; gap: 0.25rem 1rem; padding: 1.1rem 0; border-bottom: 1px solid var(--line); align-items: start; }
+  .phases .num { font-weight: 800; font-size: 1.35rem; line-height: 1.2; color: var(--muted); }
+  .phases li[data-state="active"] .num { color: var(--moss); }
+  .phases p { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.97rem; }
+  .meter { padding-top: 0.35rem; }
+  .meter .bar { height: 0.5rem; background: var(--track); border-radius: 999px; overflow: hidden; }
+  .meter .bar span { display: block; height: 100%; background: var(--moss); border-radius: 999px; }
+  .meter[data-state="active"] .bar span { background: var(--blaze); }
+  .meter[data-state="replaced"] .bar span { background: var(--muted); opacity: 0.55; }
+  .meter .lbl { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--muted); margin-top: 0.3rem; gap: 0.5rem; }
+  .meter .lbl b { color: var(--ink); font-weight: 700; }
+  @media (max-width: 34rem) {
+    .phases > li { grid-template-columns: 2rem 1fr; }
+    .meter { grid-column: 2; }
+  }
+
+  /* The gap */
+  .gap { display: grid; gap: 1.1rem; margin-top: 0.5rem; }
+  .gap .row { display: grid; grid-template-columns: 8.5rem 1fr; gap: 0.25rem 1rem; align-items: center; }
+  .gap .who { font-weight: 700; }
+  .gap .track { position: relative; height: 2.1rem; background: var(--track); border-radius: 4px; }
+  .gap .fill { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--rust); }
+  .gap .row.mac .fill { background: var(--moss); }
+  .gap .val { position: absolute; left: 0.6rem; top: 50%; transform: translateY(-50%); font-weight: 800; color: var(--bg); font-size: 1rem; }
+  .gap .row.mac .val { left: calc(var(--w) + 0.6rem); color: var(--ink); }
+  .gap .sub { grid-column: 2; color: var(--muted); font-size: 0.9rem; margin-top: -0.1rem; }
+  @media (max-width: 34rem) { .gap .row { grid-template-columns: 1fr; } .gap .sub { grid-column: 1; } }
+
+  /* Simple lists of results */
+  .results { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .results li { display: grid; grid-template-columns: 1fr auto; gap: 0.1rem 1.25rem; padding: 0.85rem 0; border-bottom: 1px solid var(--line); }
+  .results .amt { font-weight: 800; white-space: nowrap; text-align: right; }
+  .results .det { grid-column: 1 / -1; color: var(--muted); font-size: 0.93rem; }
+
+  /* Bench feed */
+  .latest { border-left: 0.7rem solid var(--blaze); padding: 0.1rem 0 0.1rem 1.1rem; margin: 0.5rem 0 2rem; }
+  .latest .when { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.2rem; }
+  .latest h3 { font-size: 1.2rem; margin-bottom: 0.5rem; }
+  .latest .body { font-size: 0.97rem; }
+  .commits { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .commits li { display: grid; grid-template-columns: 1fr auto; gap: 1rem; padding: 0.65rem 0; border-bottom: 1px solid var(--line); font-size: 0.95rem; }
+  .commits a { text-decoration: none; }
+  .commits a:hover { text-decoration: underline; text-decoration-color: var(--moss); }
+  .commits time { color: var(--muted); white-space: nowrap; font-size: 0.88rem; }
+
+  /* Advanced view */
+  .tbl { overflow-x: auto; border-top: 1px solid var(--line); }
+  table { border-collapse: collapse; width: 100%; font-size: 0.93rem; min-width: 36rem; }
+  th, td { text-align: left; vertical-align: top; padding: 0.7rem 1rem 0.7rem 0; border-bottom: 1px solid var(--line); }
+  th { font-weight: 700; color: var(--muted); font-size: 0.85rem; }
+  td:first-child { font-weight: 700; white-space: nowrap; }
+  .state { display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap; font-weight: 600; }
+  .state::before { content: ""; width: 0.6rem; height: 0.6rem; border-radius: 2px; background: var(--contour); flex: none; }
+  .state[data-s="works"]::before, .state[data-s="pass"]::before, .state[data-s="done"]::before { background: var(--moss); }
+  .state[data-s="tested"]::before, .state[data-s="partial"]::before, .state[data-s="running"]::before, .state[data-s="active"]::before { background: var(--blaze); }
+  .state[data-s="fail"]::before { background: var(--rust); }
+  .state[data-s="open"]::before, .state[data-s="info"]::before, .state[data-s="todo"]::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+
+  .phase-detail { border-top: 1px solid var(--line); }
+  details.pd { border-bottom: 1px solid var(--line); }
+  details.pd > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: 2rem 1fr auto; gap: 1rem; padding: 1rem 0; align-items: baseline; }
+  details.pd > summary::-webkit-details-marker { display: none; }
+  details.pd > summary .num { font-weight: 800; font-size: 1.2rem; color: var(--muted); }
+  details.pd > summary .pct { color: var(--muted); font-size: 0.9rem; white-space: nowrap; }
+  details.pd > summary h3::after { content: " +"; color: var(--muted); font-weight: 500; }
+  details.pd[open] > summary h3::after { content: " −"; }
+  .pd-body { padding: 0 0 1.25rem 3rem; }
+  .pd-body p { margin: 0 0 0.9rem; }
+  .pd-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  .pd-cols h4 { margin: 0 0 0.3rem; font-size: 0.95rem; }
+  .pd-cols ul { margin: 0; padding-left: 1.1rem; font-size: 0.95rem; }
+  .pd-cols li { margin-bottom: 0.3rem; }
+  .gate { margin-top: 1rem; font-size: 0.93rem; }
+  .gate b { color: var(--moss); }
+  @media (max-width: 38rem) { .pd-cols { grid-template-columns: 1fr; } .pd-body { padding-left: 0; } }
+
+  .images { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .images li { display: grid; grid-template-columns: 3.25rem 1fr 7rem; gap: 0.1rem 1rem; padding: 0.7rem 0; border-bottom: 1px solid var(--line); font-size: 0.95rem; }
+  .images .n { font-weight: 800; color: var(--muted); }
+  .images .res { color: var(--muted); font-size: 0.9rem; }
+  .images .state { font-size: 0.85rem; justify-self: end; }
+  .images li[data-o="running"] .state::before { animation: blink 1.6s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity: 0.25; } }
+  @media (prefers-reduced-motion: reduce) { .images li[data-o="running"] .state::before { animation: none; } }
+  @media (max-width: 34rem) { .images li { grid-template-columns: 3rem 1fr; } .images .state { grid-column: 2; justify-self: start; } }
+
+  .steps { margin: 0; padding: 0; list-style: none; counter-reset: s; border-top: 1px solid var(--line); }
+  .steps li { counter-increment: s; display: grid; grid-template-columns: 2rem 1fr; gap: 0 1rem; padding: 0.8rem 0; border-bottom: 1px solid var(--line); }
+  .steps li::before { content: counter(s); font-weight: 800; color: var(--muted); }
+  .steps .lx { grid-column: 2; color: var(--muted); font-size: 0.92rem; }
+
+  .findings { display: grid; gap: 1.4rem; }
+  .findings p { margin: 0.1rem 0 0; color: var(--muted); font-size: 0.97rem; }
+  .plain { margin: 0; padding-left: 1.2rem; }
+  .plain li { margin-bottom: 0.45rem; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5rem; }
+  @media (max-width: 40rem) { .two { grid-template-columns: 1fr; gap: 0; } }
+
+  .activity { display: flex; align-items: flex-end; gap: 2px; height: 6rem; border-bottom: 1px solid var(--line); margin-top: 0.75rem; }
+  .activity span { flex: 1; background: var(--moss); border-radius: 2px 2px 0 0; min-height: 0; }
+  .activity span[data-z="1"] { background: var(--track); height: 2px !important; }
+  .activity-axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 0.82rem; margin-top: 0.35rem; }
+  .stats { display: flex; flex-wrap: wrap; gap: 0.5rem 2rem; margin: 1rem 0 0; }
+  .stats div b { font-size: 1.35rem; font-weight: 800; display: block; line-height: 1.2; }
+  .stats div span { color: var(--muted); font-size: 0.88rem; }
+
+  .search { display: flex; gap: 0.75rem; align-items: center; margin: 0.5rem 0 1rem; flex-wrap: wrap; }
+  .search input { flex: 1 1 14rem; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 0.55rem 0.75rem; }
+  .search input::placeholder { color: var(--muted); }
+  .search .count { color: var(--muted); font-size: 0.9rem; }
+  .log { border-top: 1px solid var(--line); }
+  details.entry { border-bottom: 1px solid var(--line); }
+  details.entry > summary { cursor: pointer; list-style: none; padding: 0.75rem 0; display: grid; grid-template-columns: 6.5rem 1fr; gap: 1rem; }
+  details.entry > summary::-webkit-details-marker { display: none; }
+  details.entry > summary time { color: var(--muted); font-size: 0.88rem; padding-top: 0.1rem; }
+  details.entry > summary span { font-weight: 600; }
+  details.entry[open] > summary span { color: var(--moss); }
+  .entry-body { padding: 0 0 1.25rem 7.5rem; font-size: 0.95rem; }
+  @media (max-width: 34rem) { details.entry > summary { grid-template-columns: 1fr; gap: 0; } .entry-body { padding-left: 0; } }
+  .md p { margin: 0 0 0.75rem; }
+  .md ul { margin: 0 0 0.75rem; padding-left: 1.2rem; }
+  .md li { margin-bottom: 0.35rem; }
+  .md h4 { margin: 1rem 0 0.4rem; font-size: 1rem; }
+  .md pre { background: var(--surface); padding: 0.75rem; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; }
+  .md pre code { background: none; padding: 0; }
+  .md .tbl table { min-width: 30rem; font-size: 0.88rem; }
+  .md .tbl td:first-child { white-space: normal; }
+  .more-btn { appearance: none; font: inherit; font-weight: 700; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 0.55rem 1rem; margin-top: 1rem; cursor: pointer; }
+  .more-btn:hover { border-color: var(--moss); }
+
+  .docs { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .docs li { display: grid; grid-template-columns: 12rem 1fr; gap: 0.2rem 1.5rem; padding: 0.8rem 0; border-bottom: 1px solid var(--line); }
+  .docs a { font-weight: 600; }
+  .docs span { color: var(--muted); }
+  @media (max-width: 34rem) { .docs li { grid-template-columns: 1fr; } }
+
+  .error { border-left: 3px solid var(--rust); padding: 0.4rem 0 0.4rem 0.9rem; color: var(--muted); font-size: 0.95rem; }
+
+  [hidden] { display: none !important; }
+
+  footer { margin-top: 4rem; padding: 2rem 0 3rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.95rem; }
+  footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; }
+  footer nav { display: flex; gap: 1.25rem; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <svg class="topo" aria-hidden="true"></svg>
+  <div class="wrap wide">
+    <a class="home" href="/">Justin Pfister</a>
+    <h1>Suspend to RAM<br>on the M2 Pro</h1>
+    <p class="intro">Teaching Linux to really sleep on Apple Silicon. Closing the lid on this MacBook Pro should cost what it costs on macOS, not six times more.</p>
+    <p class="where">
+      <span><code>T6020</code> <code>J414s</code> on Aurora Silicon</span>
+      <a href="https://github.com/JJRPF/Aurora-DeepIdle">Aurora-DeepIdle on GitHub</a>
+      <span class="live" id="live">Snapshot</span>
+    </p>
+
+    <div class="route" aria-label="Progress along the seven phases of the plan">
+      <div class="route-canvas">
+        <svg id="route" viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <div class="marker" id="marker"><b id="overall">33%</b><i></i></div>
+      </div>
+      <div class="stops" id="stops"></div>
+    </div>
+  </div>
+</header>
+
+<nav class="switch" aria-label="View">
+  <div class="wrap wide" role="tablist">
+    <button role="tab" id="tab-overview" aria-controls="overview" aria-selected="true">Overview</button>
+    <button role="tab" id="tab-advanced" aria-controls="advanced" aria-selected="false">Advanced</button>
+    <span class="stamp" id="stamp"></span>
+  </div>
+</nav>
+
+<main>
+  <!-- OVERVIEW -->
+  <div id="overview" role="tabpanel" aria-labelledby="tab-overview">
+    <section class="wrap wide">
+      <h2>Where it stands</h2>
+      <p class="lede" id="overall-note">Rough completion for each phase of the plan. The overall figure is a risk-weighted guess, not a sum.</p>
+      <ol class="phases" id="phases"></ol>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Why it matters</h2>
+      <p class="lede">Power drawn with the lid closed, on the same machine and battery gauge.</p>
+      <div class="gap" id="gap"></div>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Already saving power while awake</h2>
+      <p class="lede">Found along the way, each booted and measured in paired A/B runs.</p>
+      <ul class="results" id="awake-short"></ul>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Latest from the bench</h2>
+      <div id="latest"></div>
+      <h3>Recent commits</h3>
+      <ul class="commits" id="commits-short"></ul>
+    </section>
+  </div>
+
+  <!-- ADVANCED -->
+  <div id="advanced" role="tabpanel" aria-labelledby="tab-advanced" hidden>
+    <section class="wrap wide">
+      <h2>The pieces of S2R</h2>
+      <p class="lede">Everything macOS does to sleep the SoC, and where Linux stands on each.</p>
+      <div class="tbl"><table>
+        <thead><tr><th>Piece</th><th>State</th><th>What is known</th><th>Next</th></tr></thead>
+        <tbody id="pieces"></tbody>
+      </table></div>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Phase by phase</h2>
+      <p class="lede">What each phase has done, what is next, and the gate it must pass before the next one starts.</p>
+      <div class="phase-detail" id="phase-detail"></div>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Phase 2 test images</h2>
+      <p class="lede">Each image is one Aura build, booted once, with one change. The trail of how the wake path was found.</p>
+      <ul class="images" id="images"></ul>
+    </section>
+
+    <section class="wrap wide">
+      <h2>How macOS goes to sleep</h2>
+      <p class="lede">The order on the wire, traced with macOS 14.8.9 running under the Aura hypervisor, and what Linux has of each step.</p>
+      <ol class="steps" id="macos"></ol>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Findings</h2>
+      <p class="lede">The results the plan is built on.</p>
+      <div class="findings" id="findings"></div>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Measurements</h2>
+      <div class="two">
+        <div>
+          <h3>Awake</h3>
+          <ul class="results" id="awake"></ul>
+        </div>
+        <div>
+          <h3>Lid closed</h3>
+          <ul class="results" id="sleep"></ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="wrap wide">
+      <div class="two">
+        <div>
+          <h2>Rules learned the hard way</h2>
+          <ul class="plain" id="rules"></ul>
+        </div>
+        <div>
+          <h2>Still unknown</h2>
+          <ul class="plain" id="unknowns"></ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Sent upstream</h2>
+      <ul class="results" id="upstream"></ul>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Activity</h2>
+      <p class="lede">Commits per day to the repo.</p>
+      <div id="activity-wrap"></div>
+    </section>
+
+    <section class="wrap wide" id="worklog-section">
+      <h2>Work log</h2>
+      <p class="lede">Every run on the machine and what it showed, read live from <code>docs/worklog.md</code>. Newest first.</p>
+      <div class="search">
+        <input type="search" id="q" placeholder="Search the log, e.g. PMP, slpa, image 31" aria-label="Search the work log">
+        <span class="count" id="q-count"></span>
+      </div>
+      <div class="log" id="log"></div>
+      <button class="more-btn" id="log-more" hidden>Show all entries</button>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Read further</h2>
+      <ul class="docs">
+        <li><a href="https://github.com/JJRPF/Aurora-DeepIdle/blob/main/docs/status.md">Status</a><span>Where everything stands, in one page</span></li>
+        <li><a href="https://github.com/JJRPF/Aurora-DeepIdle/blob/main/docs/s2r-plan.md">S2R plan</a><span>The phases, their risks and their gates</span></li>
+        <li><a href="https://github.com/JJRPF/Aurora-DeepIdle/blob/main/docs/deep-idle-research.md">Research write-up</a><span>States, what macOS does, measurements, experiments, unknowns</span></li>
+        <li><a href="https://github.com/JJRPF/Aurora-DeepIdle/blob/main/docs/psci-efi.md">PSCI through EFI</a><span>How CPU_ON, CPU_OFF and SYSTEM_SUSPEND reach Aura</span></li>
+        <li><a href="https://github.com/JJRPF/Aurora-DeepIdle/blob/main/docs/hv-boot-trace-reference.md">macOS trace reference</a><span>What macOS does at boot and at the start of sleep</span></li>
+        <li><a href="https://github.com/JJRPF/Aurora-DeepIdle/tree/main/data">Raw data</a><span>Every A/B run, night and smoke test behind the numbers</span></li>
+      </ul>
+    </section>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap wide">
+    <span>Justin Pfister, New Hampshire</span>
+    <nav><a href="/">Home</a><a href="https://github.com/JJRPF">GitHub</a></nav>
+  </div>
+</footer>
+
+<script type="application/json" id="snapshot">{"schema":1,"updated":"2026-11-04","overall":33,"overall_note":"Risk-weighted guess with a wide error bar. The page prefers the live figure in `docs/status.md` when it can read one.","machine":"14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux","goal":{"linux_w":1.4,"macos_w":0.24,"linux_night":"23% of the battery a night, about 1.7 days from full with the lid closed","macos_night":"5.9 h lid closed on battery, 98.7% of it in S2R"},"phases":[{"id":0,"trail":"Recovery","name":"Remote hands","short":"Recovery without anyone at the Mac","state":"replaced","pct":100,"summary":"The USB-PD board and smart plug were dropped (no extra hardware). Recovery comes from software instead, and it is proven.","done":["Aura arms the hardware watchdog (WD1, 120 s) around `SYSTEM_SUSPEND`; a deliberate hang (image 27-hang) reset the Mac by itself","Every test image boots once; an early unit puts the default `boot.bin` back and checks its sha","Wi-Fi guard reboots a boot that never connects, with a 3-strike limit","The Raspberry Pi 5 streams the kernel log off the machine during risky runs"],"next":["A sleep that never wakes in full S2R still needs the owner at the power key"],"gate":"Unattended runs recover from a hang without hands."},{"id":1,"trail":"Hotplug","name":"CPU_ON and CPU_OFF","short":"PSCI hotplug through EFI","state":"paused","pct":55,"summary":"PSCI-via-EFI is built in the kernel, Aura and U-Boot. CPU_ON brings all nine secondaries up. CPU_OFF followed by CPU_ON still hangs the SoC, and testing is paused because the hard resets lost the NVMe's cached writes.","done":["Kernel: the PSCI-via-EFI RFC's six patches plus `t6020-j414s-psci.dts`","Aura: `psci.c`, `smp_psci_*`, `dt_set_psci()`; U-Boot: `efi_platform_register()`","CPU_ON of cpu1 to cpu9 in 0.25 s, also from a RAM-only boot that never touches the root filesystem","Found why RAM-only logs vanished: the ANS firmware caches writes until a clean `saveCtx` shutdown"],"next":["Park the core with a plain WFI instead of deep WFI, one change per image","Read-only root and the Pi’s kmsg stream, with the owner’s yes"],"gate":"Each secondary offline and online 100 times, deep idle not worse, RVBAR re-entry works."},{"id":2,"trail":"Suspend","name":"SYSTEM_SUSPEND, SoC on","short":"Linux’s full suspend path with a firmware that hands back","state":"active","pct":85,"summary":"`mem_sleep` offers `deep`. On the boot CPU alone (`maxcpus=1`) the whole Linux suspend and resume path runs, and Aura sleeps the core in deep WFI until a real wake source fires.","done":["20 of 20 suspend/resume cycles with Aura’s fixed wait (image 16), after a kernel fix for the EFI virtmap unwind","Wakes on the PMU RTC alarm (3 of 3, about 11 s for a 10 s alarm)","Wakes on the power key through the SMC mailbox line 865","Works with the PMP running, and through `systemctl suspend` with the sleep hooks","Deep WFI with state retention on the boot core (image 31)"],"next":["Image 37: the 20-cycle gate with deep WFI and the RVBAR backstop","Lid wake, not tested separately yet","Multi-CPU suspend, which needs Phase 1’s hotplug"],"gate":"20 of 20 cycles back in Linux with no device errors."},{"id":3,"trail":"macOS trace","name":"Trace macOS sleeping","short":"macOS 14.8.9 under the Aura hypervisor","state":"partial","pct":55,"summary":"The guest boots under the hypervisor with all 10 CPUs and the SMC and PMP tracers. Runs 7 to 11 captured macOS’s sleep entry in order. The wake is not visible under the hypervisor, so the raw-boot-mode risk is still open.","done":["`macOSTest` volume (14.8.9; 14.8.3 is gone from Apple’s catalog) with Aura as its boot object","Three Aura and tracer fixes (`patches/hvsleep-trace`)","The ordered sleep entry: `slpw`, the PMP display power-down, `slpa`, `SetAPPower` 0x201, the CPU complexes off, deep WFI on every core"],"next":["Find what restarts the AP on wake, and through which RVBAR","Answer whether iBoot arms the wake path for a raw image"],"gate":"An ordered list of every sleep and wake write, and a macOS wake under the hypervisor."},{"id":4,"trail":"Devices","name":"Devices survive power loss","short":"PMP, NVMe, PCIe, SMC, DCP","state":"started","pct":15,"summary":"Each device has to come back after its power is really removed. The SMC handshake is mapped and NVMe already survives Phase 2’s suspends. The PMP wake is unsolved, and DCP is the long pole.","done":["SMC: `WKTP` and `slpw` are harmless; `slpa` takes the storage away, so it goes last","PMP: RTKit IDLE acks in about 400 us","NVMe: `saveCtx` shutdown and resume, every Phase 2 cycle"],"next":["PMP: macOS’s DART off/on and outbox steps around RUN, no reset","PCIe L2 entry and D3cold resume (no remove/rescan)","DCP: full shutdown and restart of its firmware"],"gate":"Each device passes 20 cycles with its power actually removed."},{"id":5,"trail":"Full S2R","name":"Full S2R","short":"The SoC powers down, DRAM in self-refresh","state":"started","pct":5,"summary":"Aura’s `SYSTEM_SUSPEND` gains the SoC steps in macOS’s order: PMGR quiesce, the S2R timer, the PMU SPMI quiesce and `slpa`, then `restoreHW` on wake.","done":["The PMGR, SMC and PMP sleep actions read from the macOS 13.5 kernelcache"],"next":["First cycle with the PMU alarm as the only wake and the owner at the power key"],"gate":"20 of 20 cycles; lid, key, keyboard and alarm wakes; about 0.3 W on battery."},{"id":6,"trail":"Daily use","name":"Daily use","short":"Lid close just works","state":"todo","pct":0,"summary":"U-Boot passes Aura’s PSCI table on, Omarchy’s suspend uses `deep`, and the patches go to Aurora’s trees.","done":[],"next":[],"gate":"Shipped."}],"pieces":[{"name":"Timed wake","state":"works","known":"The PMU RTC alarm on SPMI irq 2, AIC 724. The “fired” bit must be cleared before re-arming. Upstream’s alarm is T6030-only, so the T602x patches are still needed.","next":"Shape it for upstream; power-on from off is untested"},{"name":"Boot CPU hand-back","state":"works","known":"`SYSTEM_SUSPEND` returns through the kernel’s `cpu_resume`, 20 of 20. With retention the core sleeps and comes back. Powered down without retention, it never re-enters at RVBAR (images 32 to 36).","next":"Full S2R wakes through a different route"},{"name":"Wake sources","state":"works","known":"Deep WFI with AIC lines 724 (alarm) and 865 (SMC mailbox) unmasked. The power key wakes on 865.","next":"Lid; stop the SMC’s early `Elec Cause` syslog wakes"},{"name":"AIC","state":"works","known":"Save and mask every bank, restore on resume (syscore). It runs on every Phase 2 cycle. Because it masks everything, wake detection has to come from the PMU/SMC side.","next":"—"},{"name":"SMC handshake","state":"tested","known":"`WKTP` and `slpw` are harmless. `slpa` makes NVMe I/O fail after resume and outlasts a warm reboot. `SetAPPower` IDLE is acked and safe.","next":"`slpa` last, on the real path only"},{"name":"PMP","state":"partial","known":"IDLE works. RUN alone woke it 0 of 3. Gating `ps_pms_sram` does not restart it, and a PMGR reset of `ps_pmp` crashes the SoC.","next":"DART off/on and outbox steps around RUN"},{"name":"Secondary CPUs","state":"partial","known":"CPU_ON works for all nine. CPU_OFF then CPU_ON hangs the SoC.","next":"Plain-WFI park, guarded test"},{"name":"PMGR quiesce, S2R timer","state":"open","known":"Read statically from macOS 13.5. The last write goes to an always-on PMGR block Linux does not map.","next":"The wake half of the trace"},{"name":"Devices","state":"open","known":"s2idle only. DCP cannot resume from power loss today.","next":"Phase 4, in the traced order"}],"images":[{"n":"16","what":"`SYSTEM_SUSPEND` stub: a fixed 3 s wait, then back through `cpu_resume`","result":"20 of 20 cycles, after the EFI virtmap unwind fix","outcome":"pass"},{"n":"17","what":"Wake poll on `ISR_EL1`","result":"30 s timeouts: no `wakealarm`, upstream’s alarm is T6030-only","outcome":"fail"},{"n":"18","what":"Rebuilt the stale PSCI DTB","result":"The alarm fires, Aura’s poll never sees it","outcome":"fail"},{"n":"19","what":"Debug words written for Linux to read back","result":"All zero: still in Aura’s cache","outcome":"info"},{"n":"20","what":"`dc cvac` on the words, then a magic-number scan","result":"`HCR_EL2` has IMO/FMO set, so `ISR_EL1` shows the virtual state","outcome":"info"},{"n":"21","what":"Clear IMO/FMO/AMO before polling","result":"No change","outcome":"fail"},{"n":"22","what":"Poll the AIC event register","result":"Hang at `PM: suspend entry`: the AIC was not in the EFI runtime map","outcome":"fail"},{"n":"23","what":"AIC added to the runtime map","result":"No hang, but the event page stays empty","outcome":"fail"},{"n":"24","what":"Dump asserted AIC HW_STATE words","result":"Many lines asserted; 724 out of view","outcome":"info"},{"n":"25","what":"Watch IRQ 724 only","result":"The line rises, but syscore suspend has masked the whole AIC","outcome":"info"},{"n":"26","what":"End the wait on HW_STATE bit 20 of word 22","result":"Wakes on the RTC alarm, 3 of 3, about 11 s","outcome":"pass"},{"n":"27","what":"Hardware watchdog armed for 120 s around the call","result":"Harmless 3 of 3; the 27-hang variant proved the reset","outcome":"pass"},{"n":"28","what":"WFI with DAIF masked instead of the busy wait","result":"3 of 3, one WFI return each","outcome":"pass"},{"n":"29","what":"WFI on two lines: 724 alarm, 865 SMC mailbox","result":"Alarm 3 of 3; the power key wakes on 865","outcome":"pass"},{"n":"30","what":"The PMP running, then the real `systemctl suspend` path","result":"3 of 3 each; radios back after resume","outcome":"pass"},{"n":"31","what":"Deep WFI with state retention","result":"3 of 3 back, but early wakes from SMC syslog; `SetAPPower` IDLE cuts them","outcome":"pass"},{"n":"32","what":"Boot core powered down without retention, back through RVBAR","result":"Hung; the watchdog reset the Mac","outcome":"fail"},{"n":"33","what":"Silent RVBAR path, staged watchdog","result":"Reset at 120 s: never reached C","outcome":"fail"},{"n":"34","what":"`debug_putc` silenced","result":"Byte-identical to 33; same result","outcome":"info"},{"n":"35","what":"Whole resident image cleaned to PoC first","result":"Reset at 120 s again","outcome":"fail"},{"n":"36","what":"Watchdog stamp in the first RVBAR instructions","result":"The powered-down core never reaches RVBAR","outcome":"fail"},{"n":"37","what":"Retention deep WFI with the RVBAR backstop, 20 cycles","result":"The Phase 2 gate run","outcome":"running"}],"macos_sleep":[{"step":"SMC `MSxb` writes from every CPU","linux":"Housekeeping, not needed yet"},{"step":"SMC `MBSE` = `slpw`: the sleep warning","linux":"Tested in s2idle: harmless"},{"step":"PMP target writes take the displays and GPU down until only the CPU complexes (PCPM0, PCPM1) are requested","linux":"Read in the trace; not reproduced"},{"step":"SMC `MBSE` = `slpa`: the sleep trigger","linux":"Tested in s2idle: takes NVMe away. Last on the real path only"},{"step":"`SetAPPower` 0x201 to the SMC and the PMP, then PMP `SetIOPPower` 0x201","linux":"SMC side tested: acked, safe. PMP IDLE works; its wake does not"},{"step":"CPU start/stop writes, PCPM1 and PCPM0 cleared, a PMGR USB0 always-on write","linux":"Not reproduced"},{"step":"Every core sets `CYC_OVRD` WFI_MODE 3 and idles; the SMC and PMP power the cores down","linux":"Deep WFI with retention works on the boot core"}],"awake":[{"change":"Booting the PMP","saving":"0.9 to 1.15 W","detail":"Quiet desktop 6.28 to 5.38 W on battery; busy 7.52 to 6.36 W. Needs 160 KiB of m1n1 DT headroom."},{"change":"CPU PD residency of 100 us","saving":"up to about 0.6 W","detail":"94% of the PD-always saving; wake latency about 20 to 25 us p50 at any threshold."},{"change":"PD always, long-running desktop","saving":"0.9 to 1.1 W","detail":"1.3 to 2.5 W under load at 14 to 17 W."},{"change":"T602x CPU energy model","saving":"61 mW","detail":"EAS runs and moves light work to the E cores; lower in 15 of 15 rounds."},{"change":"HDMI rails off with nothing plugged in","saving":"0.13 W","detail":"Lower in 12 of 12 rounds; patch built, not booted."},{"change":"SD reader link with ASPM L1","saving":"0.37 W","detail":"Without L1 the all-off night drained 2.1 W."}],"sleep":[{"what":"s2idle, PMP running","value":"1.39 to 1.46 W","detail":"9.6 h, 23% of the battery a night"},{"what":"s2idle, stock, on battery","value":"1.41 W","detail":""},{"what":"s2idle, everything optional off","value":"2.1 W","detail":"The SD link without L1"},{"what":"macOS 15.7.1","value":"0.24 W","detail":"5.9 h, 98.7% of it in S2R"}],"findings":[{"title":"The gap is SoC sleep itself","body":"Awake idle matches macOS once the PMP runs (5.38 W against 5.57 W, SoC 1.22 W on both). The lid-closed gap is not the devices."},{"title":"s2idle’s 1.4 W is power left on, not wakes","body":"The 3.2 wakes a second come from the AOP’s ambient-light and lid-angle reports and cost milliwatts. The PMP doesn’t change the drain."},{"title":"macOS tells the PMP when the system sleeps","body":"Read from the macOS 13.5 kernelcache: the full order of sleep and quiesce actions, the SMC `MBSE` handshake, PMGR’s last write, and the PMP’s RTKit IDLE (0x201), which is Linux’s unused `apple_rtkit_idle()`."},{"title":"`slpa` takes the storage away","body":"After `slpa` in s2idle every NVMe access failed, and the state survived a warm reboot. It means the SoC is about to lose power, so it belongs last."},{"title":"The PMP’s wake from IDLE is a power cycle","body":"RUN alone woke it 0 of 3. Gating its SRAM did not restart it, and resetting `ps_pmp` crashed the SoC. `ps_pmp` is pinned on by iBoot."},{"title":"ISR_EL1 is blind at EL2 under VHE","body":"With IMO/FMO set, Aura saw only the virtual pending state. The fix was to watch the AIC’s HW_STATE for the alarm line."},{"title":"The kernel masks the whole AIC for suspend","body":"`aic_syscore_suspend` masks every line, as macOS does. In real S2R the wake must be detected from the PMU/SMC side."},{"title":"A core powered down without retention doesn’t come back on an IRQ","body":"Across images 32 to 36 the boot core never re-entered at RVBAR. Secondaries only return through a PMGR CPU-start written by another core."},{"title":"NVMe drops cached writes on a hard reset","body":"The ANS firmware caches until a clean `saveCtx` shutdown. That explained the lost logs and the filesystem damage after hotplug hangs."},{"title":"The PMU RTC alarm is the timed wake","body":"Linux had no driver for the alarm macOS uses for dark wakes. `rtcwake -m freeze -s 30` woke after about 31 s, 3 of 3."}],"rules":["Never remove and rescan PCI devices: it kills Wi-Fi until a reboot.","No `slpa` without the owner at the power key and the Pi watcher on.","Never reset `ps_pmp`.","Keep a `.keep` file in module trees pacman doesn’t own.","No hotplug tests on a boot that can hurt the root filesystem.","Check the ESP sha after every copy, and refuse to suspend on the default image."],"unknowns":["Whether iBoot arms the wake path (reconfig engine, boot CPU RVBAR) for a raw image as it does for a kernelcache.","What restarts the AP on wake in macOS, and through which RVBAR.","What the reconfig engine runs on `SLP_S2R`, and what each quiesce action writes.","Why CPU_OFF followed by CPU_ON hangs the SoC.","Whether a DCP with nothing attached can be shut down and restarted.","What the PMP’s VLPM tunables control."],"upstream":[{"name":"aurora-silicon/m1n1#63","what":"DT headroom for the PMP tunables"},{"name":"linux#932","what":"T602x CPU energy model"},{"name":"linux#933","what":"Enable the PMP on J414s (draft)"}]}</script>
+<script>
+(function () {
+  'use strict';
+  const REPO = 'JJRPF/Aurora-DeepIdle';
+  const RAW = `https://raw.githubusercontent.com/${REPO}/main/`;
+  const API = `https://api.github.com/repos/${REPO}`;
+  const GH = `https://github.com/${REPO}`;
+  const TTL = 10 * 60 * 1000;
+  const $ = id => document.getElementById(id);
+
+  /* ---------- helpers ---------- */
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  function inline(s) {
+    // escape, then `code`, **bold**, [text](url)
+    const parts = String(s).split(/(`[^`]+`)/g);
+    return parts.map(p => {
+      if (/^`[^`]+`$/.test(p)) return `<code>${esc(p.slice(1, -1))}</code>`;
+      let h = esc(p);
+      h = h.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+      h = h.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, t, u) => {
+        let href = u.replace(/&amp;/g, '&');
+        if (!/^https?:/.test(href)) href = `${GH}/blob/main/docs/${href.replace(/^\.\//, '')}`;
+        return `<a href="${esc(href)}">${t}</a>`;
+      });
+      return h;
+    }).join('');
+  }
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function fmtDate(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
+    return m ? `${MONTHS[+m[2] - 1]} ${+m[3]}, ${m[1]}` : '';
+  }
+  function ago(d) {
+    const s = (Date.now() - d.getTime()) / 1000;
+    if (s < 90) return 'just now';
+    if (s < 3600) return `${Math.round(s / 60)} min ago`;
+    if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+    const days = Math.round(s / 86400);
+    return days === 1 ? 'yesterday' : `${days} days ago`;
+  }
+  const STATE_WORDS = { done: 'Done', active: 'In progress', paused: 'Paused', partial: 'Partly done', started: 'Started', todo: 'Not started', replaced: 'Replaced by software' };
+  const PIECE_WORDS = { works: 'Works', tested: 'Tested', partial: 'Partly', open: 'Open' };
+  const OUT_WORDS = { pass: 'Worked', fail: 'Failed', info: 'Diagnostic', running: 'Running' };
+
+  /* ---------- fetching with a short cache ---------- */
+  async function cached(key, url, type, init) {
+    try {
+      const hit = JSON.parse(localStorage.getItem('s2r:' + key) || 'null');
+      if (hit && Date.now() - hit.t < TTL) return hit.v;
+    } catch (e) { /* storage unavailable */ }
+    const r = await fetch(url, init);
+    if (!r.ok) throw new Error(`${r.status} ${url}`);
+    const v = type === 'json' ? await r.json() : await r.text();
+    try { localStorage.setItem('s2r:' + key, JSON.stringify({ t: Date.now(), v })); } catch (e) { /* full or blocked */ }
+    return v;
+  }
+  async function commits() {
+    const out = [];
+    for (let page = 1; page <= 3; page++) {
+      const batch = await cached('commits' + page, `${API}/commits?per_page=100&page=${page}`, 'json', { headers: { Accept: 'application/vnd.github+json' } });
+      out.push(...batch);
+      if (batch.length < 100) break;
+    }
+    return out;
+  }
+
+  /* ---------- work log parsing ---------- */
+  function parseLog(md) {
+    const lines = md.split('\n');
+    const entries = [];
+    let cur = null, lastDate = '';
+    for (const line of lines) {
+      const h = /^## (.+)$/.exec(line);
+      if (h) {
+        const head = h[1].trim();
+        const dm = /(\d{4}-\d{2}-\d{2})/.exec(head);
+        if (dm) lastDate = dm[1];
+        let title = head
+          .replace(/^\d{4}-\d{2}-\d{2}(?:\s*\(?\d{1,2}:\d{2}(?::\d{2})?\)?)?(?:\s+night)?\s*(?:[:—–-]\s*)?/, '')
+          .trim();
+        if (!title) title = 'Notes';
+        title = title.charAt(0).toUpperCase() + title.slice(1);
+        cur = { date: dm ? dm[1] : lastDate, title, head, lines: [] };
+        entries.push(cur);
+      } else if (cur) cur.lines.push(line);
+    }
+    entries.forEach(e => { e.body = e.lines.join('\n').trim(); e.text = (e.head + ' ' + e.body).toLowerCase(); delete e.lines; });
+    return entries.filter(e => e.body || e.title);
+  }
+  function renderMd(md) {
+    const lines = md.split('\n');
+    let html = '', i = 0;
+    while (i < lines.length) {
+      let l = lines[i];
+      if (/^```/.test(l)) {
+        const buf = []; i++;
+        while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++]);
+        i++; html += `<pre><code>${esc(buf.join('\n'))}</code></pre>`; continue;
+      }
+      if (/^\s*\|/.test(l)) {
+        const rows = [];
+        while (i < lines.length && /^\s*\|/.test(lines[i])) rows.push(lines[i++]);
+        const cells = r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+        const body = rows.filter(r => !/^\s*\|[\s:|-]+\|\s*$/.test(r));
+        const [head, ...rest] = body;
+        html += '<div class="tbl"><table><thead><tr>' + cells(head).map(c => `<th>${inline(c)}</th>`).join('') + '</tr></thead><tbody>' +
+          rest.map(r => '<tr>' + cells(r).map(c => `<td>${inline(c)}</td>`).join('') + '</tr>').join('') + '</tbody></table></div>';
+        continue;
+      }
+      if (/^\s*[-*] /.test(l)) {
+        const items = [];
+        while (i < lines.length && (/^\s*[-*] /.test(lines[i]) || (/^\s{2,}\S/.test(lines[i]) && items.length))) {
+          if (/^\s*[-*] /.test(lines[i])) items.push(lines[i].replace(/^\s*[-*] /, ''));
+          else items[items.length - 1] += ' ' + lines[i].trim();
+          i++;
+        }
+        html += '<ul>' + items.map(t => `<li>${inline(t)}</li>`).join('') + '</ul>';
+        continue;
+      }
+      if (/^#{3,} /.test(l)) { html += `<h4>${inline(l.replace(/^#+ /, ''))}</h4>`; i++; continue; }
+      if (!l.trim()) { i++; continue; }
+      const buf = [];
+      while (i < lines.length && lines[i].trim() && !/^(\s*[-*] |\s*\||```|#{3,} )/.test(lines[i])) buf.push(lines[i++].trim());
+      html += `<p>${inline(buf.join(' '))}</p>`;
+    }
+    return html;
+  }
+
+  /* ---------- the route across the hero ---------- */
+  function elevation(x) {
+    // a climb from the valley to the summit, with a few switchbacks of its own
+    const t = x / 1000;
+    return 88 - 66 * (t * 0.85 + 0.15 * t * t) + 6 * Math.sin(t * 17.5) + 3.5 * Math.sin(t * 41 + 1.3);
+  }
+  function drawRoute(pct, phases) {
+    const svg = $('route');
+    const pts = [];
+    for (let x = 0; x <= 1000; x += 5) pts.push([x, elevation(x)]);
+    const d = 'M' + pts.map(p => `${p[0]} ${p[1].toFixed(2)}`).join('L');
+    const cut = Math.max(0, Math.min(1000, pct * 10));
+    const donePts = pts.filter(p => p[0] <= cut);
+    donePts.push([cut, elevation(cut)]);
+    const dd = 'M' + donePts.map(p => `${p[0]} ${p[1].toFixed(2)}`).join('L');
+    const ground = dd + `L${cut} 100L0 100Z`;
+    let ticks = '';
+    for (let k = 1; k < 7; k++) { const x = k * 1000 / 7; ticks += `<line class="tick" x1="${x}" x2="${x}" y1="${elevation(x) + 4}" y2="100"/>`; }
+    svg.innerHTML = `<path class="ground" d="${ground}"/>${ticks}<path class="ahead" d="${d}"/><path class="done" d="${dd}"/>`;
+    const m = $('marker');
+    m.style.left = (cut / 10) + '%';
+    m.style.top = (elevation(cut) / 100 * 100) + '%';
+    $('overall').textContent = `${pct}%`;
+    $('stops').innerHTML = phases.map(p => `<span data-state="${esc(p.state)}"><b>${p.id}</b><em>${esc(p.trail || p.name)}</em></span>`).join('');
+  }
+
+  /* ---------- topo, as on the home page ---------- */
+  function topo() {
+    const svg = document.querySelector('.topo');
+    if (!svg) return;
+    function hash(x, y) {
+      let h = x * 374761393 + y * 668265263 + 1442695041;
+      h = (h ^ (h >>> 13)) * 1274126177;
+      return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+    }
+    const smooth = t => t * t * (3 - 2 * t);
+    function noise(x, y) {
+      const xi = Math.floor(x), yi = Math.floor(y);
+      const xf = smooth(x - xi), yf = smooth(y - yi);
+      const a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
+      return a + (b - a) * xf + (c - a) * yf + (a - b - c + d) * xf * yf;
+    }
+    function height(x, y) {
+      let v = 0, amp = 1, f = 1 / 260, total = 0;
+      for (let o = 0; o < 4; o++) { v += noise(x * f, y * f) * amp; total += amp; amp *= 0.5; f *= 2; }
+      return v / total;
+    }
+    function draw() {
+      const w = svg.clientWidth, h = svg.clientHeight;
+      if (!w || !h) return;
+      svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      const step = 8, cols = Math.ceil(w / step) + 1, rows = Math.ceil(h / step) + 1;
+      const g = new Float32Array(cols * rows);
+      // offset from the home page so this is a neighbouring patch of the same map
+      for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) g[j * cols + i] = height(i * step + 2300, j * step + 900);
+      const levels = 22, out = [];
+      for (let l = 1; l < levels; l++) {
+        const t = 0.18 + (l / levels) * 0.64;
+        let d = '';
+        for (let j = 0; j < rows - 1; j++) for (let i = 0; i < cols - 1; i++) {
+          const a = g[j * cols + i], b = g[j * cols + i + 1], c = g[(j + 1) * cols + i + 1], e = g[(j + 1) * cols + i];
+          const idx = (a > t) | ((b > t) << 1) | ((c > t) << 2) | ((e > t) << 3);
+          if (idx === 0 || idx === 15) continue;
+          const x = i * step, y = j * step;
+          const top = [x + step * (t - a) / (b - a), y];
+          const right = [x + step, y + step * (t - b) / (c - b)];
+          const bottom = [x + step * (t - e) / (c - e), y + step];
+          const left = [x, y + step * (t - a) / (e - a)];
+          const seg = (p, q) => { d += `M${p[0].toFixed(1)} ${p[1].toFixed(1)}L${q[0].toFixed(1)} ${q[1].toFixed(1)}`; };
+          switch (idx) {
+            case 1: case 14: seg(left, top); break;
+            case 2: case 13: seg(top, right); break;
+            case 3: case 12: seg(left, right); break;
+            case 4: case 11: seg(right, bottom); break;
+            case 6: case 9: seg(top, bottom); break;
+            case 7: case 8: seg(left, bottom); break;
+            case 5: seg(left, top); seg(right, bottom); break;
+            case 10: seg(top, right); seg(left, bottom); break;
+          }
+        }
+        out.push(`<path${l % 5 === 0 ? ' class="index"' : ''} d="${d}"/>`);
+      }
+      svg.innerHTML = out.join('');
+    }
+    draw();
+    let timer;
+    window.addEventListener('resize', () => { clearTimeout(timer); timer = setTimeout(draw, 150); });
+  }
+
+  /* ---------- rendering ---------- */
+  function renderStatus(S, overall) {
+    drawRoute(overall, S.phases);
+
+    $('phases').innerHTML = S.phases.map(p => `
+      <li data-state="${esc(p.state)}">
+        <span class="num">${p.id}</span>
+        <div><h3>${esc(p.name)}</h3><p>${inline(p.short)}</p></div>
+        <div class="meter" data-state="${esc(p.state)}">
+          <div class="bar" role="img" aria-label="${p.pct}% done"><span style="width:${p.pct}%"></span></div>
+          <div class="lbl"><span>${STATE_WORDS[p.state] || esc(p.state)}</span><b>${p.state === 'replaced' ? '' : p.pct + '%'}</b></div>
+        </div>
+      </li>`).join('');
+
+    const g = S.goal, max = Math.max(g.linux_w, g.macos_w) * 1.08;
+    $('gap').innerHTML = `
+      <div class="row linux">
+        <span class="who">Linux, s2idle</span>
+        <div class="track"><div class="fill" style="width:${g.linux_w / max * 100}%"></div><span class="val">${g.linux_w} W</span></div>
+        <span class="sub">${inline(g.linux_night)}</span>
+      </div>
+      <div class="row mac" style="--w:${g.macos_w / max * 100}%">
+        <span class="who">macOS, S2R</span>
+        <div class="track"><div class="fill" style="width:${g.macos_w / max * 100}%"></div><span class="val">${g.macos_w} W</span></div>
+        <span class="sub">${inline(g.macos_night)}</span>
+      </div>`;
+
+    const resultItem = (a, b, c) => `<li><span>${inline(a)}</span><span class="amt">${inline(b)}</span>${c ? `<span class="det">${inline(c)}</span>` : ''}</li>`;
+    $('awake-short').innerHTML = S.awake.slice(0, 4).filter((_, i) => i !== 2).map(a => resultItem(a.change, a.saving, a.detail)).join('');
+    $('awake').innerHTML = S.awake.map(a => resultItem(a.change, a.saving, a.detail)).join('');
+    $('sleep').innerHTML = S.sleep.map(a => resultItem(a.what, a.value, a.detail)).join('');
+
+    $('pieces').innerHTML = S.pieces.map(p => `<tr><td>${esc(p.name)}</td><td><span class="state" data-s="${esc(p.state)}">${PIECE_WORDS[p.state] || esc(p.state)}</span></td><td>${inline(p.known)}</td><td>${inline(p.next)}</td></tr>`).join('');
+
+    $('phase-detail').innerHTML = S.phases.map(p => `
+      <details class="pd"${p.state === 'active' ? ' open' : ''}>
+        <summary><span class="num">${p.id}</span><h3>${esc(p.name)}</h3><span class="pct">${STATE_WORDS[p.state] || ''}${p.state === 'replaced' ? '' : ', ' + p.pct + '%'}</span></summary>
+        <div class="pd-body">
+          <p>${inline(p.summary)}</p>
+          <div class="pd-cols">
+            <div><h4>Done</h4>${p.done.length ? `<ul>${p.done.map(x => `<li>${inline(x)}</li>`).join('')}</ul>` : '<p class="note">Nothing yet.</p>'}</div>
+            <div><h4>Next</h4>${p.next.length ? `<ul>${p.next.map(x => `<li>${inline(x)}</li>`).join('')}</ul>` : '<p class="note">Waits on the phases before it.</p>'}</div>
+          </div>
+          <p class="gate"><b>Gate.</b> ${inline(p.gate)}</p>
+        </div>
+      </details>`).join('');
+
+    $('images').innerHTML = S.images.map(m => `
+      <li data-o="${esc(m.outcome)}">
+        <span class="n">${esc(m.n)}</span>
+        <div>${inline(m.what)}<div class="res">${inline(m.result)}</div></div>
+        <span class="state" data-s="${esc(m.outcome)}">${OUT_WORDS[m.outcome] || esc(m.outcome)}</span>
+      </li>`).join('');
+
+    $('macos').innerHTML = S.macos_sleep.map(s => `<li><span>${inline(s.step)}</span><span class="lx">Linux: ${inline(s.linux)}</span></li>`).join('');
+    $('findings').innerHTML = S.findings.map(f => `<div><h3>${inline(f.title)}</h3><p>${inline(f.body)}</p></div>`).join('');
+    $('rules').innerHTML = S.rules.map(r => `<li>${inline(r)}</li>`).join('');
+    $('unknowns').innerHTML = S.unknowns.map(r => `<li>${inline(r)}</li>`).join('');
+    $('upstream').innerHTML = (S.upstream || []).map(u => `<li><span>${inline(u.what)}</span><span class="amt">${esc(u.name)}</span></li>`).join('');
+  }
+
+  function renderLatest(entries) {
+    if (!entries || !entries.length) {
+      $('latest').innerHTML = `<p class="error">The work log couldn’t be loaded from GitHub. <a href="${GH}/blob/main/docs/worklog.md">Read it on GitHub</a>.</p>`;
+      return;
+    }
+    const e = entries[entries.length - 1];
+    const firstBlock = e.body.split(/\n\s*\n/)[0];
+    $('latest').innerHTML = `<div class="latest"><p class="when">${fmtDate(e.date)}</p><h3>${inline(e.title)}</h3><div class="body md">${renderMd(firstBlock)}</div>
+      <p class="note"><a href="#advanced" data-goto="worklog-section">Read the whole log</a></p></div>`;
+  }
+
+  let logEntries = [], logShowAll = false;
+  function renderLog() {
+    const box = $('log');
+    if (!logEntries.length) {
+      box.innerHTML = `<p class="error">The work log couldn’t be loaded from GitHub. <a href="${GH}/blob/main/docs/worklog.md">Read it on GitHub</a>.</p>`;
+      $('q').disabled = true; return;
+    }
+    const q = $('q').value.trim().toLowerCase();
+    const terms = q.split(/\s+/).filter(Boolean);
+    const list = logEntries.slice().reverse().filter(e => terms.every(t => e.text.includes(t)));
+    const shown = (q || logShowAll) ? list : list.slice(0, 15);
+    $('q-count').textContent = q ? `${list.length} of ${logEntries.length} entries` : `${logEntries.length} entries`;
+    box.innerHTML = shown.map((e, i) => `
+      <details class="entry" data-i="${logEntries.indexOf(e)}"${q && i < 3 ? ' open' : ''}>
+        <summary><time>${fmtDate(e.date) || '—'}</time><span>${inline(e.title)}</span></summary>
+        <div class="entry-body md"></div>
+      </details>`).join('') || '<p class="note" style="padding:1rem 0">No entries match. Try a shorter word.</p>';
+    box.querySelectorAll('details.entry').forEach(d => {
+      const fill = () => { const b = d.querySelector('.entry-body'); if (!b.dataset.done) { b.innerHTML = renderMd(logEntries[+d.dataset.i].body); b.dataset.done = 1; } };
+      if (d.open) fill();
+      d.addEventListener('toggle', () => { if (d.open) fill(); });
+    });
+    const btn = $('log-more');
+    btn.hidden = !!q || logShowAll || list.length <= 15;
+    btn.textContent = `Show all ${list.length} entries`;
+  }
+
+  function renderCommits(list) {
+    if (!list || !list.length) {
+      const msg = `<li><span class="note">Commits couldn’t be loaded right now (GitHub limits anonymous requests). <a href="${GH}/commits/main">See them on GitHub</a>.</span></li>`;
+      $('commits-short').innerHTML = msg;
+      $('activity-wrap').innerHTML = `<p class="error">Activity couldn’t be loaded right now. <a href="${GH}/commits/main">See the commits on GitHub</a>.</p>`;
+      return null;
+    }
+    const item = c => {
+      const d = new Date(c.commit.committer.date);
+      const msg = c.commit.message.split('\n')[0];
+      return `<li><a href="${esc(c.html_url)}">${inline(msg)}</a><time datetime="${d.toISOString()}" title="${d.toLocaleString()}">${ago(d)}</time></li>`;
+    };
+    $('commits-short').innerHTML = list.slice(0, 6).map(item).join('');
+
+    // commits per day, from the first commit to today
+    const byDay = new Map();
+    list.forEach(c => { const k = c.commit.committer.date.slice(0, 10); byDay.set(k, (byDay.get(k) || 0) + 1); });
+    const keys = [...byDay.keys()].sort();
+    const start = new Date(keys[0] + 'T00:00:00Z'), end = new Date();
+    const days = [];
+    for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) days.push(d.toISOString().slice(0, 10));
+    const max = Math.max(...byDay.values());
+    const bars = days.map(k => { const n = byDay.get(k) || 0; return `<span ${n ? '' : 'data-z="1"'} style="height:${n / max * 100}%" title="${fmtDate(k)}: ${n} commit${n === 1 ? '' : 's'}"></span>`; }).join('');
+    const active = keys.length, total = list.length >= 300 ? '300+' : list.length;
+    const busiest = keys.reduce((a, k) => byDay.get(k) > byDay.get(a) ? k : a, keys[0]);
+    $('activity-wrap').innerHTML = `
+      <div class="activity" role="img" aria-label="Commits per day">${bars}</div>
+      <div class="activity-axis"><span>${fmtDate(days[0])}</span><span>Today</span></div>
+      <div class="stats">
+        <div><b>${total}</b><span>commits</span></div>
+        <div><b>${active}</b><span>days with commits</span></div>
+        <div><b>${byDay.get(busiest)}</b><span>on the busiest day, ${fmtDate(busiest)}</span></div>
+      </div>
+      <h3 style="margin-top:2rem">Latest commits</h3>
+      <ul class="commits">${list.slice(0, 15).map(item).join('')}</ul>`;
+    return new Date(list[0].commit.committer.date);
+  }
+
+  /* ---------- views ---------- */
+  function show(view, scrollTo) {
+    const adv = view === 'advanced';
+    $('overview').hidden = adv; $('advanced').hidden = !adv;
+    $('tab-overview').setAttribute('aria-selected', String(!adv));
+    $('tab-advanced').setAttribute('aria-selected', String(adv));
+    if (scrollTo) { const el = $(scrollTo); if (el) el.scrollIntoView(); }
+  }
+  const fromHash = () => (location.hash === '#advanced' ? 'advanced' : 'overview');
+  $('tab-overview').addEventListener('click', () => { history.replaceState(null, '', '#overview'); show('overview'); });
+  $('tab-advanced').addEventListener('click', () => { history.replaceState(null, '', '#advanced'); show('advanced'); });
+  window.addEventListener('hashchange', () => show(fromHash()));
+  document.addEventListener('click', e => {
+    const a = e.target.closest('[data-goto]');
+    if (!a) return;
+    e.preventDefault(); history.replaceState(null, '', '#advanced'); show('advanced', a.dataset.goto);
+  });
+  $('q').addEventListener('input', renderLog);
+  $('log-more').addEventListener('click', () => { logShowAll = true; renderLog(); });
+
+  /* ---------- go ---------- */
+  topo();
+  show(fromHash());
+  const snapshot = JSON.parse($('snapshot').textContent);
+  renderStatus(snapshot, snapshot.overall);
+  $('stamp').textContent = `Snapshot of ${fmtDate(snapshot.updated)}`;
+
+  Promise.allSettled([
+    cached('status-json', RAW + 'docs/s2r-status.json', 'json'),
+    cached('status-md', RAW + 'docs/status.md', 'text'),
+    cached('worklog', RAW + 'docs/worklog.md', 'text'),
+    commits()
+  ]).then(([js, smd, wl, cm]) => {
+    const S = js.status === 'fulfilled' && js.value && js.value.phases ? js.value : snapshot;
+    let overall = S.overall;
+    if (smd.status === 'fulfilled') {
+      const m = /about (\d{1,3})% of the way to working S2R/i.exec(smd.value);
+      if (m) overall = +m[1];
+    }
+    renderStatus(S, overall);
+
+    logEntries = wl.status === 'fulfilled' ? parseLog(wl.value) : [];
+    renderLatest(logEntries);
+    renderLog();
+
+    const last = renderCommits(cm.status === 'fulfilled' ? cm.value : null);
+    const anyLive = js.status === 'fulfilled' || smd.status === 'fulfilled' || wl.status === 'fulfilled' || cm.status === 'fulfilled';
+    $('live').dataset.on = anyLive ? '1' : '0';
+    $('live').textContent = anyLive ? 'Live from GitHub' : 'Snapshot (GitHub unreachable)';
+    $('stamp').textContent = last ? `Last commit ${ago(last)}` : `Status of ${fmtDate(S.updated)}`;
+  });
+})();
+</script>
+</body>
+</html>
