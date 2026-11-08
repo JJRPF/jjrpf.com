@@ -1,12 +1,18 @@
 {
   "name": "jjrpf-com",
+  "main": "worker/index.js",
   "compatibility_date": "2026-11-03",
   "observability": {
     "enabled": true
   },
   "assets": {
-    "directory": "."
+    "directory": ".",
+    "binding": "ASSETS"
   },
+  // Holds the short status message on /S2R/ (key: s2r-message).
+  "kv_namespaces": [
+    { "binding": "STATUS", "id": "8d2e3757582940dba3f82cd7444f41ed" }
+  ],
   // Required by `wrangler preview`, which non-production branch builds run.
   "previews": {}
 }
