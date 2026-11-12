@@ -61,10 +61,25 @@ async function message(request, env) {
   return json({ text: clean, updated });
 }
 
+// Folders whose URL can be typed in any case: /s2r, /S2r/... go to /S2R/...
+const FOLDERS = ['S2R'];
+const BY_LOWER = new Map(FOLDERS.map(f => [f.toLowerCase(), f]));
+
+function caseRedirect(url) {
+  const m = /^\/([^/]+)(\/.*)?$/.exec(url.pathname);
+  if (!m) return null;
+  const folder = BY_LOWER.get(m[1].toLowerCase());
+  if (!folder || folder === m[1]) return null;
+  url.pathname = `/${folder}${m[2] || '/'}`;
+  return Response.redirect(url.toString(), 301);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === PATH) return message(request, env);
-    return env.ASSETS.fetch(request);
+    // Static files are matched before this script runs, so only paths
+    // with no exact match get here.
+    return caseRedirect(url) || env.ASSETS.fetch(request);
   },
 };
