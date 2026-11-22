@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GPU on the M2 Pro | Justin Pfister</title>
+<meta name="description" content="Status of GPU work for Linux on the 14-inch MacBook Pro M2 Pro (J414s): making compute, graphics and AI as fast and stable as on macOS.">
+<meta property="og:title" content="GPU on the M2 Pro">
+<meta property="og:description" content="Making the GPU on Apple Silicon as fast on Linux as on macOS. Live status of the Aurora-GPUParity research.">
+<link rel="canonical" href="https://jjrpf.com/GPU/">
+<meta property="og:url" content="https://jjrpf.com/GPU/">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='11' y='4' width='10' height='24' rx='1.5' fill='%23F2C12E'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,700;12..96,800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #EEF1EC;
+    --surface: #E2E7E0;
+    --ink: #17201C;
+    --muted: #56625B;
+    --line: #C3CCC3;
+    --moss: #2E5E45;
+    --blaze: #F2C12E;
+    --contour: #9DB0A2;
+    --rust: #A8522F;
+    --track: #D3DAD2;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141A17; --surface: #1C2420; --ink: #E4EAE3; --muted: #97A49B;
+      --line: #2F3A34; --moss: #8FC4A3; --blaze: #E8B828; --contour: #33443A;
+      --rust: #DB8A68; --track: #26302B;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141A17; --surface: #1C2420; --ink: #E4EAE3; --muted: #97A49B;
+    --line: #2F3A34; --moss: #8FC4A3; --blaze: #E8B828; --contour: #33443A;
+    --rust: #DB8A68; --track: #26302B;
+    color-scheme: dark;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  :root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  html { -webkit-text-size-adjust: 100%; scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 4rem); }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    font-optical-sizing: auto;
+    font-size: 1.0625rem;
+    line-height: 1.6;
+  }
+  a { color: inherit; text-decoration-color: var(--line); text-underline-offset: 0.2em; text-decoration-thickness: 1.5px; }
+  a:hover { text-decoration-color: var(--moss); }
+  a:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visible { outline: 2px solid var(--moss); outline-offset: 3px; border-radius: 2px; }
+  code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.86em; background: var(--surface); padding: 0.1em 0.35em; border-radius: 4px; overflow-wrap: anywhere; }
+
+  .wrap { max-width: 44rem; margin: 0 auto; padding-inline: 1.5rem; }
+  .wide { max-width: 56rem; }
+
+  /* Hero: same topo map as the home page, with the S2R route drawn across it */
+  .hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); }
+  .topo {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    color: var(--contour);
+    -webkit-mask-image: linear-gradient(100deg, transparent 18%, #000 70%);
+            mask-image: linear-gradient(100deg, transparent 18%, #000 70%);
+    pointer-events: none;
+  }
+  .topo path { fill: none; stroke: currentColor; stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .topo path.index { stroke-width: 1.8; }
+  .hero .wrap { position: relative; padding-top: clamp(1.5rem, 4vw, 2rem); padding-bottom: clamp(1.5rem, 5vw, 2.5rem); }
+  .home { display: inline-block; color: var(--muted); font-size: 0.95rem; text-decoration: none; margin-bottom: clamp(2.5rem, 9vw, 5rem); }
+  .home:hover { color: var(--ink); }
+  h1 {
+    font-size: clamp(2.5rem, 9vw, 4.75rem);
+    font-weight: 800;
+    line-height: 0.95;
+    letter-spacing: -0.035em;
+    margin: 0 0 1.4rem;
+  }
+  .intro { font-size: 1.25rem; line-height: 1.5; max-width: 34rem; margin: 0 0 1.5rem; }
+  .where { color: var(--muted); font-size: 0.95rem; margin: 0; display: flex; flex-wrap: wrap; gap: 0.4rem 1.25rem; }
+  .live::before { content: ""; display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--contour); margin-right: 0.45rem; vertical-align: 0.08em; }
+  .live[data-on="1"]::before { background: var(--moss); }
+  .msg { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.75rem; margin: 1.5rem 0 0; padding: 0.7rem 1rem; max-width: 40rem; background: var(--surface); border-left: 4px solid var(--blaze); border-radius: 0 6px 6px 0; }
+  .msg[hidden] { display: none; }
+  .msg b { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  .msg span { font-size: 1.05rem; font-weight: 500; }
+  .msg time { color: var(--muted); font-size: 0.85rem; }
+
+  /* The route */
+  .route { position: relative; margin-top: clamp(2.5rem, 7vw, 3.5rem); }
+  .route-canvas { position: relative; height: clamp(7rem, 22vw, 10rem); }
+  .route-canvas svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .route .ground { fill: var(--surface); opacity: 0.85; }
+  .route .ahead { fill: none; stroke: var(--muted); stroke-width: 2; stroke-dasharray: 2 6; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .route .done { fill: none; stroke: var(--moss); stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  .route .tick { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .marker { position: absolute; transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+  .marker b { font-size: clamp(1.6rem, 5vw, 2.25rem); font-weight: 800; letter-spacing: -0.03em; line-height: 1; margin-bottom: 0.4rem; background: var(--bg); padding: 0.1rem 0.35rem; border-radius: 4px; }
+  .marker i { display: block; width: 0.7rem; height: 1.6rem; background: var(--blaze); border-radius: 2px; margin-bottom: 0.25rem; box-shadow: 0 0 0 3px var(--bg); }
+  .stops { display: grid; grid-template-columns: repeat(7, 1fr); margin-top: 0.6rem; font-size: 0.85rem; color: var(--muted); }
+  .stops span { padding-right: 0.4rem; line-height: 1.3; }
+  .stops span b { display: block; color: var(--ink); font-weight: 700; }
+  .stops span[data-state="active"] b { color: var(--moss); }
+  @media (max-width: 40rem) { .stops em { display: none; } }
+  .stops em { font-style: normal; }
+
+  /* View switch */
+  .switch { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); padding-top: env(safe-area-inset-top, 0px); }
+  .switch .wrap { display: flex; gap: 1.5rem; align-items: center; }
+  .switch button {
+    appearance: none; background: none; border: 0; color: var(--muted); font: inherit; font-weight: 700;
+    padding: 0.85rem 0 0.75rem; border-bottom: 3px solid transparent; cursor: pointer; margin-bottom: -1px;
+  }
+  .switch button:hover { color: var(--ink); }
+  .switch button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--blaze); }
+  .switch .stamp { margin-left: auto; color: var(--muted); font-size: 0.85rem; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+  section { padding: 3.25rem 0 0.25rem; }
+  h2 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.015em; margin: 0 0 0.5rem; }
+  h2 + .lede { color: var(--muted); margin: 0 0 1.5rem; max-width: 36rem; }
+  h3 { font-size: 1.1rem; font-weight: 700; margin: 0 0 0.25rem; letter-spacing: -0.005em; }
+  .muted { color: var(--muted); }
+  .note { color: var(--muted); font-size: 0.9rem; }
+
+  /* Phase rows */
+  .phases { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .phases > li { display: grid; grid-template-columns: 2rem 1fr 9.5rem; gap: 0.25rem 1rem; padding: 1.1rem 0; border-bottom: 1px solid var(--line); align-items: start; }
+  .phases .num { font-weight: 800; font-size: 1.35rem; line-height: 1.2; color: var(--muted); }
+  .phases li[data-state="active"] .num { color: var(--moss); }
+  .phases p { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.97rem; }
+  .meter { padding-top: 0.35rem; }
+  .meter .bar { height: 0.5rem; background: var(--track); border-radius: 999px; overflow: hidden; }
+  .meter .bar span { display: block; height: 100%; background: var(--moss); border-radius: 999px; }
+  .meter[data-state="active"] .bar span { background: var(--blaze); }
+  .meter[data-state="replaced"] .bar span { background: var(--muted); opacity: 0.55; }
+  .meter .lbl { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--muted); margin-top: 0.3rem; gap: 0.5rem; }
+  .meter .lbl b { color: var(--ink); font-weight: 700; }
+  @media (max-width: 34rem) {
+    .phases > li { grid-template-columns: 2rem 1fr; }
+    .meter { grid-column: 2; }
+  }
+
+  /* The gap */
+  .gap { display: grid; gap: 1.1rem; margin-top: 0.5rem; }
+  .gap .row { display: grid; grid-template-columns: 8.5rem 1fr; gap: 0.25rem 1rem; align-items: center; }
+  .gap .who { font-weight: 700; }
+  .gap .track { position: relative; height: 2.1rem; background: var(--track); border-radius: 4px; }
+  .gap .fill { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--rust); }
+  .gap .row.mac .fill { background: var(--moss); }
+  .gap .val { position: absolute; left: 0.6rem; top: 50%; transform: translateY(-50%); font-weight: 800; color: var(--bg); font-size: 1rem; }
+  .gap .row.mac .val { left: calc(var(--w) + 0.6rem); color: var(--ink); }
+  .gap .sub { grid-column: 2; color: var(--muted); font-size: 0.9rem; margin-top: -0.1rem; }
+  @media (max-width: 34rem) { .gap .row { grid-template-columns: 1fr; } .gap .sub { grid-column: 1; } }
+
+  /* Simple lists of results */
+  .results { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .results li { display: grid; grid-template-columns: 1fr auto; gap: 0.1rem 1.25rem; padding: 0.85rem 0; border-bottom: 1px solid var(--line); }
+  .results .amt { font-weight: 800; white-space: nowrap; text-align: right; }
+  .results .det { grid-column: 1 / -1; color: var(--muted); font-size: 0.93rem; }
+
+  /* Bench feed */
+  .latest { border-left: 0.7rem solid var(--blaze); padding: 0.1rem 0 0.1rem 1.1rem; margin: 0.5rem 0 2rem; }
+  .latest .when { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.2rem; }
+  .latest h3 { font-size: 1.2rem; margin-bottom: 0.5rem; }
+  .latest .body { font-size: 0.97rem; }
+  .commits { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .commits li { display: grid; grid-template-columns: 1fr auto; gap: 1rem; padding: 0.65rem 0; border-bottom: 1px solid var(--line); font-size: 0.95rem; }
+  .commits a { text-decoration: none; }
+  .commits a:hover { text-decoration: underline; text-decoration-color: var(--moss); }
+  .commits time { color: var(--muted); white-space: nowrap; font-size: 0.88rem; }
+
+  /* Advanced view */
+  .tbl { overflow-x: auto; border-top: 1px solid var(--line); }
+  table { border-collapse: collapse; width: 100%; font-size: 0.93rem; min-width: 36rem; }
+  th, td { text-align: left; vertical-align: top; padding: 0.7rem 1rem 0.7rem 0; border-bottom: 1px solid var(--line); }
+  th { font-weight: 700; color: var(--muted); font-size: 0.85rem; }
+  td:first-child { font-weight: 700; white-space: nowrap; }
+  .state { display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap; font-weight: 600; }
+  .state::before { content: ""; width: 0.6rem; height: 0.6rem; border-radius: 2px; background: var(--contour); flex: none; }
+  .state[data-s="works"]::before, .state[data-s="pass"]::before, .state[data-s="done"]::before { background: var(--moss); }
+  .state[data-s="tested"]::before, .state[data-s="partial"]::before, .state[data-s="running"]::before, .state[data-s="active"]::before { background: var(--blaze); }
+  .state[data-s="fail"]::before { background: var(--rust); }
+  .state[data-s="open"]::before, .state[data-s="info"]::before, .state[data-s="todo"]::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+
+  .phase-detail { border-top: 1px solid var(--line); }
+  details.pd { border-bottom: 1px solid var(--line); }
+  details.pd > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: 2rem 1fr auto; gap: 1rem; padding: 1rem 0; align-items: baseline; }
+  details.pd > summary::-webkit-details-marker { display: none; }
+  details.pd > summary .num { font-weight: 800; font-size: 1.2rem; color: var(--muted); }
+  details.pd > summary .pct { color: var(--muted); font-size: 0.9rem; white-space: nowrap; }
+  details.pd > summary h3::after { content: " +"; color: var(--muted); font-weight: 500; }
+  details.pd[open] > summary h3::after { content: " −"; }
+  .pd-body { padding: 0 0 1.25rem 3rem; }
+  .pd-body p { margin: 0 0 0.9rem; }
+  .pd-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  .pd-cols h4 { margin: 0 0 0.3rem; font-size: 0.95rem; }
+  .pd-cols ul { margin: 0; padding-left: 1.1rem; font-size: 0.95rem; }
+  .pd-cols li { margin-bottom: 0.3rem; }
+  .gate { margin-top: 1rem; font-size: 0.93rem; }
+  .gate b { color: var(--moss); }
+  @media (max-width: 38rem) { .pd-cols { grid-template-columns: 1fr; } .pd-body { padding-left: 0; } }
+
+  .images { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .images li { display: grid; grid-template-columns: 3.25rem 1fr 7rem; gap: 0.1rem 1rem; padding: 0.7rem 0; border-bottom: 1px solid var(--line); font-size: 0.95rem; }
+  .images .n { font-weight: 800; color: var(--muted); }
+  .images .res { color: var(--muted); font-size: 0.9rem; }
+  .images .state { font-size: 0.85rem; justify-self: end; }
+  .images li[data-o="running"] .state::before { animation: blink 1.6s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity: 0.25; } }
+  @media (prefers-reduced-motion: reduce) { .images li[data-o="running"] .state::before { animation: none; } }
+  @media (max-width: 34rem) { .images li { grid-template-columns: 3rem 1fr; } .images .state { grid-column: 2; justify-self: start; } }
+
+  .steps { margin: 0; padding: 0; list-style: none; counter-reset: s; border-top: 1px solid var(--line); }
+  .steps li { counter-increment: s; display: grid; grid-template-columns: 2rem 1fr; gap: 0 1rem; padding: 0.8rem 0; border-bottom: 1px solid var(--line); }
+  .steps li::before { content: counter(s); font-weight: 800; color: var(--muted); }
+  .steps .lx { grid-column: 2; color: var(--muted); font-size: 0.92rem; }
+
+  .findings { display: grid; gap: 1.4rem; }
+  .findings p { margin: 0.1rem 0 0; color: var(--muted); font-size: 0.97rem; }
+  .plain { margin: 0; padding-left: 1.2rem; }
+  .plain li { margin-bottom: 0.45rem; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5rem; }
+  @media (max-width: 40rem) { .two { grid-template-columns: 1fr; gap: 0; } }
+
+  .activity { display: flex; align-items: flex-end; gap: 2px; height: 6rem; border-bottom: 1px solid var(--line); margin-top: 0.75rem; }
+  .activity span { flex: 1; background: var(--moss); border-radius: 2px 2px 0 0; min-height: 0; }
+  .activity span[data-z="1"] { background: var(--track); height: 2px !important; }
+  .activity-axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 0.82rem; margin-top: 0.35rem; }
+  .stats { display: flex; flex-wrap: wrap; gap: 0.5rem 2rem; margin: 1rem 0 0; }
+  .stats div b { font-size: 1.35rem; font-weight: 800; display: block; line-height: 1.2; }
+  .stats div span { color: var(--muted); font-size: 0.88rem; }
+
+  .search { display: flex; gap: 0.75rem; align-items: center; margin: 0.5rem 0 1rem; flex-wrap: wrap; }
+  .search input { flex: 1 1 14rem; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 0.55rem 0.75rem; }
+  .search input::placeholder { color: var(--muted); }
+  .search .count { color: var(--muted); font-size: 0.9rem; }
+  .log { border-top: 1px solid var(--line); }
+  details.entry { border-bottom: 1px solid var(--line); }
+  details.entry > summary { cursor: pointer; list-style: none; padding: 0.75rem 0; display: grid; grid-template-columns: 6.5rem 1fr; gap: 1rem; }
+  details.entry > summary::-webkit-details-marker { display: none; }
+  details.entry > summary time { color: var(--muted); font-size: 0.88rem; padding-top: 0.1rem; }
+  details.entry > summary span { font-weight: 600; }
+  details.entry[open] > summary span { color: var(--moss); }
+  .entry-body { padding: 0 0 1.25rem 7.5rem; font-size: 0.95rem; }
+  @media (max-width: 34rem) { details.entry > summary { grid-template-columns: 1fr; gap: 0; } .entry-body { padding-left: 0; } }
+  .md p { margin: 0 0 0.75rem; }
+  .md ul { margin: 0 0 0.75rem; padding-left: 1.2rem; }
+  .md li { margin-bottom: 0.35rem; }
+  .md h4 { margin: 1rem 0 0.4rem; font-size: 1rem; }
+  .md pre { background: var(--surface); padding: 0.75rem; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; }
+  .md pre code { background: none; padding: 0; }
+  .md .tbl table { min-width: 30rem; font-size: 0.88rem; }
+  .md .tbl td:first-child { white-space: normal; }
+  .more-btn { appearance: none; font: inherit; font-weight: 700; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 0.55rem 1rem; margin-top: 1rem; cursor: pointer; }
+  .more-btn:hover { border-color: var(--moss); }
+
+  .docs { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .docs li { display: grid; grid-template-columns: 12rem 1fr; gap: 0.2rem 1.5rem; padding: 0.8rem 0; border-bottom: 1px solid var(--line); }
+  .docs a { font-weight: 600; }
+  .docs span { color: var(--muted); }
+  @media (max-width: 34rem) { .docs li { grid-template-columns: 1fr; } }
+
+  .error { border-left: 3px solid var(--rust); padding: 0.4rem 0 0.4rem 0.9rem; color: var(--muted); font-size: 0.95rem; }
+
+  [hidden] { display: none !important; }
+
+  footer { margin-top: 4rem; padding: 2rem 0 3rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.95rem; }
+  footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; }
+  footer nav { display: flex; gap: 1.25rem; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap wide">
+    <a class="home" href="/">Justin Pfister</a>
+    <h1>GPU<br>on the M2 Pro</h1>
+    <p class="intro">Making the GPU in this MacBook Pro as fast and as steady on Linux as it is on macOS: long compute jobs that finish, a desktop that stays clean, and AI and games that use all of it.</p>
+    <p class="where">
+      <span><code>T6020</code> <code>J414s</code> on Aurora Silicon</span>
+      <a href="https://github.com/aurora-silicon/linux/issues/2701">Issue #2701</a>
+      <span class="live" data-on="1">Snapshot 2026-11-22</span>
+    </p>
+    <p class="msg" role="status"><b>Right now</b><span>Recording a baseline of what the GPU does today, before changing anything.</span></p>
+  </div>
+</header>
+
+<main>
+<section class="wrap wide" id="overview">
+  <h2>Where it stands</h2>
+  <p class="lede">The work is research first: measure, find the cause, fix it, then compare with macOS row by row.</p>
+  <ol class="phases">
+    <li data-state="done"><span class="num">0</span><div><h3>Research</h3><p>What Aurora Silicon and the wider community already have for Apple GPUs, and what is missing on this chip.</p></div>
+      <div class="meter" data-state="done"><div class="bar"><span style="width:100%"></span></div><div class="lbl"><b>Done</b></div></div></li>
+    <li data-state="active"><span class="num">1</span><div><h3>Baseline</h3><p>Record the current kernel, driver and GPU timeout counts on this Mac, read-only, so every later change has a before.</p></div>
+      <div class="meter" data-state="active"><div class="bar"><span style="width:40%"></span></div><div class="lbl"><b>In progress</b></div></div></li>
+    <li data-state="todo"><span class="num">2</span><div><h3>Fix the compute timeouts</h3><p>Long Vulkan compute (image and music generation) trips GPU timeouts and corrupts the desktop. Leading suspect: firmware compute preemption is not enabled for this chip. Not tested yet.</p></div>
+      <div class="meter" data-state="todo"><div class="bar"><span style="width:0%"></span></div><div class="lbl"><b>Next</b></div></div></li>
+    <li data-state="todo"><span class="num">3</span><div><h3>Measure against macOS</h3><p>The same benchmarks on macOS (Metal) and Linux (Vulkan) on this machine, to see where Linux is slower.</p></div>
+      <div class="meter" data-state="todo"><div class="bar"><span style="width:0%"></span></div><div class="lbl"><b>Planned</b></div></div></li>
+    <li data-state="todo"><span class="num">4</span><div><h3>Close the gaps</h3><p>Scheduling, compiler and memory work driven by what phase 3 finds. Each fix with before and after numbers.</p></div>
+      <div class="meter" data-state="todo"><div class="bar"><span style="width:0%"></span></div><div class="lbl"><b>Planned</b></div></div></li>
+  </ol>
+</section>
+
+<section class="wrap wide" id="known">
+  <h2>What is known, and what is not</h2>
+  <div class="two">
+    <div>
+      <h3>Known</h3>
+      <ul class="plain">
+        <li>On this Mac, long GPU compute produced repeated timeouts and desktop corruption (<a href="https://github.com/aurora-silicon/linux/issues/2701">#2701</a>).</li>
+        <li>The kernel driver enables firmware compute preemption automatically only for the M2 Max. The M2 Pro is not on that list.</li>
+        <li>On M2 Max, turning preemption on removed the timeouts in owners' tests.</li>
+        <li>There is no Metal on Linux. The graphics API here is Vulkan; Metal on macOS is the yardstick.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Not known yet</h3>
+      <ul class="plain">
+        <li>Whether preemption fixes the M2 Pro, and what it costs in speed.</li>
+        <li>How far Linux is from macOS on this chip, per workload.</li>
+        <li>Whether the kill-during-compute fault seen on M1 also happens here.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="wrap wide" id="method">
+  <h2>How it is run</h2>
+  <p class="lede">Every number must come with its raw data. Anything that could hang the GPU is written down before it is tried. The research repository is private for now; findings go to Aurora Silicon first.</p>
+</section>
+</main>
+
+<footer>
+  <div class="wrap wide">
+    <span>Justin Pfister</span>
+    <nav><a href="/">Home</a><a href="/S2R/">Suspend to RAM</a></nav>
+  </div>
+</footer>
+
+</body>
+</html>
