@@ -9,6 +9,11 @@
 // namespace jjrpf-com-status, key s2r-message); that just has no timestamp.
 
 const PATH = '/api/s2r-message';
+
+// Page folders and their canonical spelling. A request that differs only in
+// letter case (/gpu, /Gpu/, /s2r/index.html) is redirected to the canonical one.
+const PAGES = ['S2R', 'GPU'];
+const CANON = new Map(PAGES.map((p) => [p.toLowerCase(), p]));
 const KEY = 's2r-message';
 const MAX = 280;
 
@@ -65,6 +70,13 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === PATH) return message(request, env);
+
+    const [, first = '', ...rest] = url.pathname.split('/');
+    const canon = CANON.get(first.toLowerCase());
+    if (canon && canon !== first) {
+      url.pathname = '/' + [canon, ...rest].join('/');
+      return Response.redirect(url.toString(), 301);
+    }
     return env.ASSETS.fetch(request);
   },
 };
