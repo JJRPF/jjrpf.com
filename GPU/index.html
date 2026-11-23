@@ -280,72 +280,612 @@
 <body>
 
 <header class="hero">
+  <svg class="topo" aria-hidden="true"></svg>
   <div class="wrap wide">
     <a class="home" href="/">Justin Pfister</a>
     <h1>GPU<br>on the M2 Pro</h1>
     <p class="intro">Making the GPU in this MacBook Pro as fast and as steady on Linux as it is on macOS: long compute jobs that finish, a desktop that stays clean, and AI and games that use all of it.</p>
     <p class="where">
       <span><code>T6020</code> <code>J414s</code> on Aurora Silicon</span>
+      <a href="https://github.com/JJRPF/Aurora-GPUParity">Aurora-GPUParity on GitHub</a>
       <a href="https://github.com/aurora-silicon/linux/issues/2701">Issue #2701</a>
-      <span class="live" data-on="1">Snapshot 2026-11-22</span>
+      <span class="live" id="live">Snapshot</span>
     </p>
-    <p class="msg" role="status"><b>Right now</b><span>Recording a baseline of what the GPU does today, before changing anything.</span></p>
+    <p class="msg" id="msg" role="status" hidden><b>Right now</b><span id="msg-text"></span><time id="msg-time"></time></p>
+
+    <div class="route" aria-label="Progress along the phases of the plan">
+      <div class="route-canvas">
+        <svg id="route" viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <div class="marker" id="marker"><b id="overall"></b><i></i></div>
+      </div>
+      <div class="stops" id="stops"></div>
+    </div>
   </div>
 </header>
 
-<main>
-<section class="wrap wide" id="overview">
-  <h2>Where it stands</h2>
-  <p class="lede">The work is research first: measure, find the cause, fix it, then compare with macOS row by row.</p>
-  <ol class="phases">
-    <li data-state="done"><span class="num">0</span><div><h3>Research</h3><p>What Aurora Silicon and the wider community already have for Apple GPUs, and what is missing on this chip.</p></div>
-      <div class="meter" data-state="done"><div class="bar"><span style="width:100%"></span></div><div class="lbl"><b>Done</b></div></div></li>
-    <li data-state="active"><span class="num">1</span><div><h3>Baseline</h3><p>Record the current kernel, driver and GPU timeout counts on this Mac, read-only, so every later change has a before.</p></div>
-      <div class="meter" data-state="active"><div class="bar"><span style="width:40%"></span></div><div class="lbl"><b>In progress</b></div></div></li>
-    <li data-state="todo"><span class="num">2</span><div><h3>Fix the compute timeouts</h3><p>Long Vulkan compute (image and music generation) trips GPU timeouts and corrupts the desktop. Leading suspect: firmware compute preemption is not enabled for this chip. Not tested yet.</p></div>
-      <div class="meter" data-state="todo"><div class="bar"><span style="width:0%"></span></div><div class="lbl"><b>Next</b></div></div></li>
-    <li data-state="todo"><span class="num">3</span><div><h3>Measure against macOS</h3><p>The same benchmarks on macOS (Metal) and Linux (Vulkan) on this machine, to see where Linux is slower.</p></div>
-      <div class="meter" data-state="todo"><div class="bar"><span style="width:0%"></span></div><div class="lbl"><b>Planned</b></div></div></li>
-    <li data-state="todo"><span class="num">4</span><div><h3>Close the gaps</h3><p>Scheduling, compiler and memory work driven by what phase 3 finds. Each fix with before and after numbers.</p></div>
-      <div class="meter" data-state="todo"><div class="bar"><span style="width:0%"></span></div><div class="lbl"><b>Planned</b></div></div></li>
-  </ol>
-</section>
-
-<section class="wrap wide" id="known">
-  <h2>What is known, and what is not</h2>
-  <div class="two">
-    <div>
-      <h3>Known</h3>
-      <ul class="plain">
-        <li>On this Mac, long GPU compute produced repeated timeouts and desktop corruption (<a href="https://github.com/aurora-silicon/linux/issues/2701">#2701</a>).</li>
-        <li>The kernel driver enables firmware compute preemption automatically only for the M2 Max. The M2 Pro is not on that list.</li>
-        <li>On M2 Max, turning preemption on removed the timeouts in owners' tests.</li>
-        <li>There is no Metal on Linux. The graphics API here is Vulkan; Metal on macOS is the yardstick.</li>
-      </ul>
-    </div>
-    <div>
-      <h3>Not known yet</h3>
-      <ul class="plain">
-        <li>Whether preemption fixes the M2 Pro, and what it costs in speed.</li>
-        <li>How far Linux is from macOS on this chip, per workload.</li>
-        <li>Whether the kill-during-compute fault seen on M1 also happens here.</li>
-      </ul>
-    </div>
+<nav class="switch" aria-label="View">
+  <div class="wrap wide" role="tablist">
+    <button role="tab" id="tab-overview" aria-controls="overview" aria-selected="true">Overview</button>
+    <button role="tab" id="tab-advanced" aria-controls="advanced" aria-selected="false">Advanced</button>
+    <span class="stamp" id="stamp"></span>
   </div>
-</section>
+</nav>
 
-<section class="wrap wide" id="method">
-  <h2>How it is run</h2>
-  <p class="lede">Every number must come with its raw data. Anything that could hang the GPU is written down before it is tried. The research repository is private for now; findings go to Aurora Silicon first.</p>
-</section>
+<main>
+  <!-- OVERVIEW -->
+  <div id="overview" role="tabpanel" aria-labelledby="tab-overview">
+    <section class="wrap wide">
+      <h2>Where it stands</h2>
+      <p class="lede" id="overall-note">Rough completion for each phase of the plan.</p>
+      <ol class="phases" id="phases"></ol>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Why it matters</h2>
+      <p class="lede" id="gap-lede"></p>
+      <div class="gap" id="gap"></div>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Measured so far</h2>
+      <p class="lede">On this Mac, each number with its raw data.</p>
+      <ul class="results" id="highlights"></ul>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Latest from the bench</h2>
+      <div id="latest"></div>
+      <h3>Recent commits</h3>
+      <ul class="commits" id="commits-short"></ul>
+    </section>
+
+    <section class="wrap wide" id="credits-section">
+      <h2>Credits</h2>
+      <p class="lede">This work stands on other people's code, notes and answers. Where their code is used, it keeps their authorship.</p>
+      <ul class="results" id="credits"></ul>
+    </section>
+  </div>
+
+  <!-- ADVANCED -->
+  <div id="advanced" role="tabpanel" aria-labelledby="tab-advanced" hidden>
+    <section class="wrap wide">
+      <h2>The pieces of GPU parity</h2>
+      <p class="lede">What has to work for Linux to match macOS on this GPU, and where each stands.</p>
+      <div class="tbl"><table>
+        <thead><tr><th>Piece</th><th>State</th><th>What is known</th><th>Next</th></tr></thead>
+        <tbody id="pieces"></tbody>
+      </table></div>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Phase by phase</h2>
+      <p class="lede">What each phase has done, what is next, and the gate it must pass before the next one starts.</p>
+      <div class="phase-detail" id="phase-detail"></div>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Runs on the machine</h2>
+      <p class="lede">Each run is one worklog step, with its data folder in the repo.</p>
+      <ul class="images" id="runs"></ul>
+    </section>
+
+    <section class="wrap wide">
+      <h2>What others found</h2>
+      <p class="lede">Work on other Apple GPUs that this plan builds on. None of it has been run on the M2 Pro yet.</p>
+      <div class="findings" id="prior-art"></div>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Findings</h2>
+      <p class="lede">The results the plan is built on.</p>
+      <div class="findings" id="findings"></div>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Measurements</h2>
+      <p class="lede">How long a second client waits for the GPU (p95) while compute runs, by how long each submission takes.</p>
+      <div class="two" id="measurements"></div>
+    </section>
+
+    <section class="wrap wide">
+      <div class="two">
+        <div>
+          <h2>Rules learned the hard way</h2>
+          <ul class="plain" id="rules"></ul>
+        </div>
+        <div>
+          <h2>Still unknown</h2>
+          <ul class="plain" id="unknowns"></ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Sent upstream</h2>
+      <ul class="results" id="upstream"></ul>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Activity</h2>
+      <p class="lede">Commits per day to the repo.</p>
+      <div id="activity-wrap"></div>
+    </section>
+
+    <section class="wrap wide" id="worklog-section">
+      <h2>Work log</h2>
+      <p class="lede">Every step on the machine and what it showed, read live from <code>docs/worklog.md</code>. Newest first.</p>
+      <div class="search">
+        <input type="search" id="q" placeholder="Search the log, e.g. preempt, ramp, G34" aria-label="Search the work log">
+        <span class="count" id="q-count"></span>
+      </div>
+      <div class="log" id="log"></div>
+      <button class="more-btn" id="log-more" hidden>Show all entries</button>
+    </section>
+
+    <section class="wrap wide">
+      <h2>Read further</h2>
+      <ul class="docs">
+        <li><a href="https://github.com/JJRPF/Aurora-GPUParity/blob/main/docs/status.md">Status</a><span>What is known, not known, and next</span></li>
+        <li><a href="https://github.com/JJRPF/Aurora-GPUParity/blob/main/docs/plan.md">Plan</a><span>The phases, from #2701 to closing the gap to macOS</span></li>
+        <li><a href="https://github.com/JJRPF/Aurora-GPUParity/blob/main/docs/preempt-test.md">Preemption test</a><span>How the <code>compute_preempt</code> test will run, and why it has not yet</span></li>
+        <li><a href="https://github.com/JJRPF/Aurora-GPUParity/blob/main/docs/prior-art.md">Prior art</a><span>What exists for Apple GPUs, and what it means for t6020</span></li>
+        <li><a href="https://github.com/JJRPF/Aurora-GPUParity/tree/main/data">Raw data</a><span>Every run behind the numbers</span></li>
+      </ul>
+    </section>
+  </div>
 </main>
 
 <footer>
   <div class="wrap wide">
-    <span>Justin Pfister</span>
-    <nav><a href="/">Home</a><a href="/S2R/">Suspend to RAM</a></nav>
+    <span>Justin Pfister, New Hampshire</span>
+    <nav><a href="/">Home</a><a href="/S2R/">Suspend to RAM</a><a href="https://github.com/JJRPF">GitHub</a></nav>
   </div>
 </footer>
 
+<script type="application/json" id="snapshot">{"schema":1,"updated":"2026-11-22","overall":15,"overall_note":"Rough completion for each phase of the plan. The overall figure is a guess set by hand, not a sum.","machine":"14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`, G14S GPU, 32 GB), Aurora Silicon Linux","gap":{"lede":"How long a second client (a stand-in for the desktop) waits for the GPU while one long compute job runs, on this machine today. Measured with `gpuprobe`, a 16 ms tick beside the compute job.","unit":"ms","rows":[{"who":"Linux, 6 s job","kind":"linux","value":68,"label":"68 ms","sub":"p95 wait with one 6 s compute dispatch; 29% of ticks miss a 120 Hz frame. [data](../data/20261122-ramp-default-preempt-long/)"},{"who":"Linux, 3 s job","kind":"linux","value":32,"label":"32 ms","sub":"p95 wait with one 3 s dispatch; 35% of ticks over 8.3 ms. [data](../data/20261122-ramp-default-preempt/)"},{"who":"Target","kind":"target","value":8.3,"label":"8.3 ms","sub":"One frame at 120 Hz. Batched 20 ms dispatches already stay under it (p95 0.72 ms)."}]},"phases":[{"id":0,"trail":"Research","name":"Research","short":"What Aurora Silicon and others already have for Apple GPUs, and what is missing on this chip","state":"done","pct":100,"summary":"Aurora’s kernel, Mesa, `gpubench` and agent guidelines read, plus the Metal-on-Vulkan projects. No Metal API exists for Apple GPUs on Linux, and the kernel turns compute preemption on automatically only for the M2 Max.","done":["Kernel source: `compute_preempt` defaults to -1, which means on for chip `0x6021` (M2 Max) only","linux-aurora#25 read: with preemption, M2 Max owners saw 0 timeouts","Prior art written up in [prior-art.md](prior-art.md)"],"next":[],"gate":"A plan with a testable first hypothesis."},{"id":1,"trail":"Baseline","name":"Baseline","short":"Record what the GPU does today, before changing anything","state":"active","pct":70,"summary":"Kernel, driver and GPU error history recorded read-only. `gpubench` core chunks ran clean. A compute probe shows the desktop waiting in proportion to compute dispatch length, which fits missing preemption, but it has not reproduced the #2701 timeouts yet.","done":["Identity: `7.2.11-16-1-ARCH`, Borealis (Mesa 26.3.0-devel), `asahi` as a module","GPU errors in only 2 of 99 boots; the #2701 boot has 116 timeouts","`gpubench` core-a and core-b: 44 results, 0 timeouts","`gpuprobe` ramp: single dispatches of 50 ms to 12 s, batched up to 10 s"],"next":["Reproduce an actual timeout: several clients at once, or memory pressure","A FLUX.2 and an ACE-Step run with `journalctl` counts"],"gate":"A repeatable way to trigger the #2701 timeouts, with its data."},{"id":2,"trail":"Timeouts","name":"Fix the compute timeouts","short":"Long Vulkan compute trips GPU timeouts and corrupts the desktop (#2701)","state":"started","pct":10,"summary":"The leading suspect is that firmware compute preemption is off for this chip. The test is planned in [preempt-test.md](preempt-test.md): one boot with `options asahi compute_preempt=1` in `/etc/modprobe.d/`. It needs a reboot of the shared test Mac, so it waits for the S2R work.","done":["Found that a modprobe option is enough: no kernel command line change","Test plan with three ways to run it and the way back"],"next":["Boot with `compute_preempt=1` and rerun the ramp and the real workloads","Qualify per linux-aurora#25: repeated digests, throughput, compositor concurrency, teardown","Decide the right rule without a chip gate, draft the patch, report into #2701"],"gate":"0 timeouts under the #2701 workloads, results correct, throughput cost known."},{"id":3,"trail":"vs macOS","name":"Measure against macOS","short":"The same benchmarks on macOS (Metal) and Linux (Vulkan) on this machine","state":"todo","pct":0,"summary":"No `gpubench` record exists for this chip on macOS. Boot macOS on this Mac, record the suite with the Metal executor, and rank the rows where Linux loses with `tools/performance-gate.py`.","done":[],"next":[],"gate":"A ranked list of the rows where Linux is slower, with real workloads beside the synthetic ones."},{"id":4,"trail":"Close gaps","name":"Close the gaps","short":"Scheduling, compiler and memory work driven by phase 3","state":"todo","pct":0,"summary":"Each gap from phase 3 becomes its own fix with before and after numbers: compute against compositor scheduling, Borealis compiler and dispatch performance, memory.","done":[],"next":[],"gate":"Linux at or above macOS on every comparable row."}],"highlights":[{"what":"GPU errors in the journal","value":"2 of 99 boots","detail":"The #2701 boot (116 timeouts, 6 fault dumps) and one timeout right after an out-of-memory kill. [data](../data/20261122-baseline-identity/)"},{"what":"`gpubench` core suite on Linux","value":"44 results, 0 timeouts","detail":"No macOS record for this chip exists yet to compare with. [data](../data/20261122-gpubench-baseline/)"},{"what":"Desktop wait beside a 3 s compute dispatch","value":"32 ms p95","detail":"2.9 ms at 50 ms dispatches. The wait grows with dispatch length. [data](../data/20261122-ramp-default-preempt/)"},{"what":"The same work split into 20 ms dispatches","value":"0.72 ms p95","detail":"Dispatch boundaries let the GPU switch clients. [data](../data/20261122-ramp-default-preempt-batched/)"}],"pieces":[{"name":"Compute preemption","state":"open","known":"Automatic only for M2 Max (`0x6021`). On this kernel `compute_preempt` exists (`modinfo`) but has no sysfs file.","next":"One boot with `compute_preempt=1`"},{"name":"#2701 timeouts","state":"partial","known":"116 timeouts in the reporting boot. Not reproduced by a single synthetic dispatch of up to 12 s.","next":"Several clients, or memory pressure"},{"name":"Desktop beside compute","state":"partial","known":"The second client’s p95 wait grows from 2.9 ms (50 ms dispatch) to 69 ms (12 s). Batched work stays under 1 ms.","next":"Same ramp with preemption on"},{"name":"Kill and teardown","state":"open","known":"linux-aurora#335 faults on M1 were fixed in 7.3.0-2-20261110.1. Not checked on t6020.","next":"Kill a client mid-dispatch during qualification"},{"name":"Linux benchmark baseline","state":"works","known":"`gpubench` core-a and core-b recorded on Borealis, 0 timeouts.","next":"`multi`, `feat` and the stress suite"},{"name":"macOS reference","state":"open","known":"No Metal record for t6020 in `gpubench`.","next":"Phase 3"},{"name":"Freed dma-buf memory","state":"open","known":"metal2vulkan reports the asahi driver keeps freed dma-buf imports past process exit.","next":"Run its reproducer here"}],"runs":[{"n":"G29","what":"GPU error history across the whole journal","result":"2 of 99 boots with errors; 116 timeouts in the #2701 boot","outcome":"info"},{"n":"G31","what":"`gpubench` core-a and core-b, preemption at the default","result":"44 results, 0 timeouts or faults","outcome":"pass"},{"n":"G32","what":"`gpuprobe` sanity run, 20 ms dispatches","result":"Calibrated to 20.3 ms, hashes identical","outcome":"pass"},{"n":"G34","what":"Ramp, one dispatch per submission, 50 ms to 3 s","result":"0 timeouts; the second client’s p95 wait rises from 2.9 to 32 ms","outcome":"info"},{"n":"G35","what":"Ramp, batched 20 ms dispatches, 100 ms to 10 s","result":"0 timeouts; p95 wait 0.72 to 0.79 ms from 800 ms up","outcome":"pass"},{"n":"G36","what":"Single dispatches of 6 s and 12 s","result":"0 timeouts, 0 hash mismatches; p95 wait 68 to 69 ms, max 168 ms","outcome":"info"},{"n":"Next","what":"One boot with `compute_preempt=1`, same ramp and workloads","result":"Waits for the S2R work’s go-ahead to reboot","outcome":""}],"prior_art":[{"name":"linux-aurora#25","what":"G14X compute preemption: automatic on M2 Max, opt-in on Pro and Ultra pending qualification. 0 timeouts with it on M2 Max; about 1% throughput cost there, 12 to 20% on M1 decode."},{"name":"linux-aurora#389","what":"M3 Pro: long compute delays the compositor 40 to 200 ms. The fix caps compute batch time while another client waits. Different backend from G14X."},{"name":"linux-aurora#440","what":"G15C: llama.cpp prefill trips the compute deadline and the GPU fail-stops until reboot."},{"name":"gpubench","what":"Matched Vulkan and Metal benchmarks and a gate: Linux must beat the macOS reference on every comparable row."},{"name":"metal2vulkan","what":"A Metal runtime on Vulkan. Its docs already list Honeykrisp on the M2 Pro as missing raster-order access and pixel interlock."}],"findings":[{"title":"Compute preemption is off on the M2 Pro","body":"The kernel turns it on automatically only for chip `0x6021`. Without it the firmware cannot switch compute out for another client, and on G14X it kills the work when its timeouts expire."},{"title":"The desktop waits in proportion to the compute dispatch","body":"One dispatch of 50 ms gives a p95 wait of 2.9 ms; 3 s gives 32 ms; 6 to 12 s gives 68 to 69 ms, with up to 35% of 16 ms ticks over a 120 Hz frame."},{"title":"Dispatch boundaries are switch points","body":"The same work as 20 ms dispatches in one submission keeps the p95 wait at 0.72 to 0.79 ms. Only a single long kernel hurts."},{"title":"A long dispatch alone does not time out","body":"No timeout up to a 12 s synthetic dispatch. The #2701 boot had 116 under llama.cpp-style load, so the trigger likely needs more than one client or memory pressure."},{"title":"GPU errors are rare outside #2701","body":"2 of 99 boots in the journal. The other one is a single timeout right after a global out-of-memory kill."},{"title":"A modprobe option is enough for the test","body":"`asahi` is a module and `modinfo` lists `compute_preempt`, so `options asahi compute_preempt=1` works at boot. The kernel command line stays default."}],"measurements":[{"title":"One long dispatch","rows":[{"what":"50 ms","value":"2.9 ms p95","detail":"0% over 8.3 ms"},{"what":"800 ms","value":"6.5 ms p95","detail":"1.6% over 8.3 ms, max 29 ms"},{"what":"1.5 s","value":"12.9 ms p95","detail":"29.7% over 8.3 ms"},{"what":"3 s","value":"32 ms p95","detail":"34.9% over 8.3 ms, max 70 ms"},{"what":"6 s","value":"68 ms p95","detail":"28.9% over 8.3 ms, max 100 ms"},{"what":"12 s","value":"69 ms p95","detail":"23.7% over 8.3 ms, max 168 ms"}]},{"title":"Batched 20 ms dispatches","rows":[{"what":"100 ms","value":"2.7 ms p95","detail":"0% over 8.3 ms"},{"what":"800 ms","value":"0.79 ms p95","detail":"max 7.4 ms"},{"what":"3 s","value":"0.72 ms p95","detail":"max 6.0 ms"},{"what":"10 s","value":"0.72 ms p95","detail":"max 4.1 ms"}]}],"rules":["Log a boot-affecting step in the worklog first, with the way back.","No GPU test reboot without the S2R work’s go-ahead: the Mac is shared.","Every number in `docs/` points at a folder in `data/`.","`journalctl -k` reads only the current boot. Use `-t kernel` to count across boots.","The harness writes results to `data/` itself, not only to a terminal that may die.","Fix the cause with the default command line, and no chip or board gates."],"unknowns":["Whether `compute_preempt=1` stops the #2701 timeouts on t6020.","What it costs in throughput on the M2 Pro.","What triggers the #2701 timeouts, since a single 12 s dispatch does not.","How far Borealis is from Metal on this chip, per workload.","Whether the linux-aurora#335 kill and teardown fault also applies to t6020."],"upstream":[{"name":"aurora-silicon/linux#2701","what":"The issue: compute timeouts and desktop corruption on J414s"}],"credits":[{"who":"Aurora Silicon","how":"The kernel, the Borealis Vulkan driver and `gpubench`, which this work measures and builds on."},{"who":"Honeykrisp","how":"The Vulkan driver Borealis is derived from."},{"who":"The M2 Max owners in linux-aurora#25","how":"Their preemption results are the hypothesis this work tests on the M2 Pro."}]}</script>
+<script>
+(function () {
+  'use strict';
+  const REPO = 'JJRPF/Aurora-GPUParity';
+  const RAW = `https://raw.githubusercontent.com/${REPO}/main/`;
+  const API = `https://api.github.com/repos/${REPO}`;
+  const GH = `https://github.com/${REPO}`;
+  const TTL = 10 * 60 * 1000;
+  const $ = id => document.getElementById(id);
+
+  /* ---------- helpers ---------- */
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  function inline(s) {
+    // escape, then `code`, **bold**, [text](url)
+    const parts = String(s).split(/(`[^`]+`)/g);
+    return parts.map(p => {
+      if (/^`[^`]+`$/.test(p)) return `<code>${esc(p.slice(1, -1))}</code>`;
+      let h = esc(p);
+      h = h.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+      h = h.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, t, u) => {
+        let href = u.replace(/&amp;/g, '&');
+        if (!/^https?:/.test(href)) href = `${GH}/blob/main/docs/${href.replace(/^\.\//, '')}`;
+        return `<a href="${esc(href)}">${t}</a>`;
+      });
+      return h;
+    }).join('');
+  }
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function fmtDate(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
+    return m ? `${MONTHS[+m[2] - 1]} ${+m[3]}, ${m[1]}` : '';
+  }
+  function ago(d) {
+    const s = (Date.now() - d.getTime()) / 1000;
+    if (s < 90) return 'just now';
+    if (s < 3600) return `${Math.round(s / 60)} min ago`;
+    if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+    const days = Math.round(s / 86400);
+    return days === 1 ? 'yesterday' : `${days} days ago`;
+  }
+  const STATE_WORDS = { done: 'Done', active: 'In progress', paused: 'Paused', partial: 'Partly done', started: 'Started', todo: 'Not started', replaced: 'Replaced by software' };
+  const PIECE_WORDS = { works: 'Works', tested: 'Tested', partial: 'Partly', open: 'Open' };
+  const sid = e => e.id ? `<span class="muted">${esc(e.id)}</span> ` : '';
+  const OUT_WORDS = { pass: 'Worked', fail: 'Failed', info: 'Diagnostic', running: 'Running' };
+
+  /* ---------- fetching with a short cache ---------- */
+  async function cached(key, url, type, init) {
+    try {
+      const hit = JSON.parse(localStorage.getItem('gpu:' + key) || 'null');
+      if (hit && Date.now() - hit.t < TTL) return hit.v;
+    } catch (e) { /* storage unavailable */ }
+    const r = await fetch(url, init);
+    if (!r.ok) throw new Error(`${r.status} ${url}`);
+    const v = type === 'json' ? await r.json() : await r.text();
+    try { localStorage.setItem('gpu:' + key, JSON.stringify({ t: Date.now(), v })); } catch (e) { /* full or blocked */ }
+    return v;
+  }
+  async function commits() {
+    const out = [];
+    for (let page = 1; page <= 3; page++) {
+      const batch = await cached('commits' + page, `${API}/commits?per_page=100&page=${page}`, 'json', { headers: { Accept: 'application/vnd.github+json' } });
+      out.push(...batch);
+      if (batch.length < 100) break;
+    }
+    return out;
+  }
+
+  /* ---------- work log parsing ---------- */
+  function parseLog(md) {
+    const lines = md.split('\n');
+    const entries = [];
+    let cur = null, date = '';
+    const clean = head => {
+      const t = head.replace(/^\d{4}-\d{2}-\d{2}(?:\s*\(?\d{1,2}:\d{2}(?::\d{2})?\)?)?\s*(?:[:—–-]\s*)?/, '').trim() || 'Notes';
+      return t.charAt(0).toUpperCase() + t.slice(1);
+    };
+    for (const line of lines) {
+      const h = /^## (.+)$/.exec(line);
+      if (h) {
+        const head = h[1].trim();
+        const dm = /(\d{4}-\d{2}-\d{2})/.exec(head);
+        if (dm) date = dm[1];
+        cur = { id: '', date, title: clean(head), head, lines: [] };
+        entries.push(cur);
+        continue;
+      }
+      const s = /^\*\*(G\d+[a-z]?)\.\s+(.+?)\*\*\s*(.*)$/.exec(line);
+      if (s) {
+        const title = s[2].trim().replace(/[.:]$/, '');
+        cur = { id: s[1], date, title, head: `${s[1]} ${title}`, lines: s[3] ? [s[3]] : [] };
+        entries.push(cur);
+        continue;
+      }
+      if (cur) cur.lines.push(line);
+    }
+    entries.forEach(e => { e.body = e.lines.join('\n').trim(); e.text = (e.head + ' ' + e.body).toLowerCase(); delete e.lines; });
+    // a section heading with nothing under it before its first step is only a divider
+    return entries.filter(e => e.id || e.body);
+  }
+  function renderMd(md) {
+    const lines = md.split('\n');
+    let html = '', i = 0;
+    while (i < lines.length) {
+      let l = lines[i];
+      if (/^```/.test(l)) {
+        const buf = []; i++;
+        while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++]);
+        i++; html += `<pre><code>${esc(buf.join('\n'))}</code></pre>`; continue;
+      }
+      if (/^\s*\|/.test(l)) {
+        const rows = [];
+        while (i < lines.length && /^\s*\|/.test(lines[i])) rows.push(lines[i++]);
+        const cells = r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+        const body = rows.filter(r => !/^\s*\|[\s:|-]+\|\s*$/.test(r));
+        const [head, ...rest] = body;
+        html += '<div class="tbl"><table><thead><tr>' + cells(head).map(c => `<th>${inline(c)}</th>`).join('') + '</tr></thead><tbody>' +
+          rest.map(r => '<tr>' + cells(r).map(c => `<td>${inline(c)}</td>`).join('') + '</tr>').join('') + '</tbody></table></div>';
+        continue;
+      }
+      if (/^\s*[-*] /.test(l)) {
+        const items = [];
+        while (i < lines.length && (/^\s*[-*] /.test(lines[i]) || (/^\s{2,}\S/.test(lines[i]) && items.length))) {
+          if (/^\s*[-*] /.test(lines[i])) items.push(lines[i].replace(/^\s*[-*] /, ''));
+          else items[items.length - 1] += ' ' + lines[i].trim();
+          i++;
+        }
+        html += '<ul>' + items.map(t => `<li>${inline(t)}</li>`).join('') + '</ul>';
+        continue;
+      }
+      if (/^#{3,} /.test(l)) { html += `<h4>${inline(l.replace(/^#+ /, ''))}</h4>`; i++; continue; }
+      if (!l.trim()) { i++; continue; }
+      const buf = [];
+      while (i < lines.length && lines[i].trim() && !/^(\s*[-*] |\s*\||```|#{3,} )/.test(lines[i])) buf.push(lines[i++].trim());
+      html += `<p>${inline(buf.join(' '))}</p>`;
+    }
+    return html;
+  }
+
+  /* ---------- the route across the hero ---------- */
+  function elevation(x) {
+    // a climb from the valley to the summit, with a few switchbacks of its own
+    const t = x / 1000;
+    return 88 - 66 * (t * 0.85 + 0.15 * t * t) + 6 * Math.sin(t * 17.5) + 3.5 * Math.sin(t * 41 + 1.3);
+  }
+  function drawRoute(pct, phases) {
+    const svg = $('route');
+    const pts = [];
+    for (let x = 0; x <= 1000; x += 5) pts.push([x, elevation(x)]);
+    const d = 'M' + pts.map(p => `${p[0]} ${p[1].toFixed(2)}`).join('L');
+    const cut = Math.max(0, Math.min(1000, pct * 10));
+    const donePts = pts.filter(p => p[0] <= cut);
+    donePts.push([cut, elevation(cut)]);
+    const dd = 'M' + donePts.map(p => `${p[0]} ${p[1].toFixed(2)}`).join('L');
+    const ground = dd + `L${cut} 100L0 100Z`;
+    let ticks = '';
+    const n = Math.max(phases.length, 1);
+    for (let k = 1; k < n; k++) { const x = k * 1000 / n; ticks += `<line class="tick" x1="${x}" x2="${x}" y1="${elevation(x) + 4}" y2="100"/>`; }
+    svg.innerHTML = `<path class="ground" d="${ground}"/>${ticks}<path class="ahead" d="${d}"/><path class="done" d="${dd}"/>`;
+    const m = $('marker');
+    m.style.left = (cut / 10) + '%';
+    m.style.top = (elevation(cut) / 100 * 100) + '%';
+    $('overall').textContent = `${pct}%`;
+    $('stops').style.gridTemplateColumns = `repeat(${n}, 1fr)`;
+    $('stops').innerHTML = phases.map(p => `<span data-state="${esc(p.state)}"><b>${p.id}</b><em>${esc(p.trail || p.name)}</em></span>`).join('');
+  }
+
+  /* ---------- topo, as on the home page ---------- */
+  function topo() {
+    const svg = document.querySelector('.topo');
+    if (!svg) return;
+    function hash(x, y) {
+      let h = x * 374761393 + y * 668265263 + 1442695041;
+      h = (h ^ (h >>> 13)) * 1274126177;
+      return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+    }
+    const smooth = t => t * t * (3 - 2 * t);
+    function noise(x, y) {
+      const xi = Math.floor(x), yi = Math.floor(y);
+      const xf = smooth(x - xi), yf = smooth(y - yi);
+      const a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
+      return a + (b - a) * xf + (c - a) * yf + (a - b - c + d) * xf * yf;
+    }
+    function height(x, y) {
+      let v = 0, amp = 1, f = 1 / 260, total = 0;
+      for (let o = 0; o < 4; o++) { v += noise(x * f, y * f) * amp; total += amp; amp *= 0.5; f *= 2; }
+      return v / total;
+    }
+    function draw() {
+      const w = svg.clientWidth, h = svg.clientHeight;
+      if (!w || !h) return;
+      svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      const step = 8, cols = Math.ceil(w / step) + 1, rows = Math.ceil(h / step) + 1;
+      const g = new Float32Array(cols * rows);
+      // offset from the home page so this is a neighbouring patch of the same map
+      for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) g[j * cols + i] = height(i * step + 4100, j * step + 1700);
+      const levels = 22, out = [];
+      for (let l = 1; l < levels; l++) {
+        const t = 0.18 + (l / levels) * 0.64;
+        let d = '';
+        for (let j = 0; j < rows - 1; j++) for (let i = 0; i < cols - 1; i++) {
+          const a = g[j * cols + i], b = g[j * cols + i + 1], c = g[(j + 1) * cols + i + 1], e = g[(j + 1) * cols + i];
+          const idx = (a > t) | ((b > t) << 1) | ((c > t) << 2) | ((e > t) << 3);
+          if (idx === 0 || idx === 15) continue;
+          const x = i * step, y = j * step;
+          const top = [x + step * (t - a) / (b - a), y];
+          const right = [x + step, y + step * (t - b) / (c - b)];
+          const bottom = [x + step * (t - e) / (c - e), y + step];
+          const left = [x, y + step * (t - a) / (e - a)];
+          const seg = (p, q) => { d += `M${p[0].toFixed(1)} ${p[1].toFixed(1)}L${q[0].toFixed(1)} ${q[1].toFixed(1)}`; };
+          switch (idx) {
+            case 1: case 14: seg(left, top); break;
+            case 2: case 13: seg(top, right); break;
+            case 3: case 12: seg(left, right); break;
+            case 4: case 11: seg(right, bottom); break;
+            case 6: case 9: seg(top, bottom); break;
+            case 7: case 8: seg(left, bottom); break;
+            case 5: seg(left, top); seg(right, bottom); break;
+            case 10: seg(top, right); seg(left, bottom); break;
+          }
+        }
+        out.push(`<path${l % 5 === 0 ? ' class="index"' : ''} d="${d}"/>`);
+      }
+      svg.innerHTML = out.join('');
+    }
+    draw();
+    let timer;
+    window.addEventListener('resize', () => { clearTimeout(timer); timer = setTimeout(draw, 150); });
+  }
+
+  /* ---------- rendering ---------- */
+  function renderStatus(S, overall) {
+    drawRoute(overall, S.phases);
+    if (S.overall_note) $('overall-note').innerHTML = inline(S.overall_note);
+
+    $('phases').innerHTML = S.phases.map(p => `
+      <li data-state="${esc(p.state)}">
+        <span class="num">${p.id}</span>
+        <div><h3>${esc(p.name)}</h3><p>${inline(p.short)}</p></div>
+        <div class="meter" data-state="${esc(p.state)}">
+          <div class="bar" role="img" aria-label="${p.pct}% done"><span style="width:${p.pct}%"></span></div>
+          <div class="lbl"><span>${STATE_WORDS[p.state] || esc(p.state)}</span><b>${p.state === 'replaced' ? '' : p.pct + '%'}</b></div>
+        </div>
+      </li>`).join('');
+
+    const g = S.gap || { rows: [] };
+    $('gap-lede').innerHTML = inline(g.lede || '');
+    const max = Math.max(...g.rows.map(r => +r.value || 0), 0) * 1.08 || 1;
+    $('gap').innerHTML = g.rows.map(r => {
+      const w = (+r.value || 0) / max * 100;
+      const mine = r.kind === 'linux';
+      return `
+      <div class="row ${mine ? 'linux' : 'mac'}"${mine ? '' : ` style="--w:${w}%"`}>
+        <span class="who">${inline(r.who)}</span>
+        <div class="track"><div class="fill" style="width:${w}%"></div><span class="val">${esc(r.label || r.value + ' ' + (g.unit || ''))}</span></div>
+        ${r.sub ? `<span class="sub">${inline(r.sub)}</span>` : ''}
+      </div>`;
+    }).join('');
+
+    const resultItem = (a, b, c) => `<li><span>${inline(a)}</span><span class="amt">${inline(b)}</span>${c ? `<span class="det">${inline(c)}</span>` : ''}</li>`;
+    $('highlights').innerHTML = (S.highlights || []).map(h => resultItem(h.what, h.value, h.detail)).join('');
+
+    $('pieces').innerHTML = S.pieces.map(p => `<tr><td>${esc(p.name)}</td><td><span class="state" data-s="${esc(p.state)}">${PIECE_WORDS[p.state] || esc(p.state)}</span></td><td>${inline(p.known)}</td><td>${inline(p.next)}</td></tr>`).join('');
+
+    $('phase-detail').innerHTML = S.phases.map(p => `
+      <details class="pd"${p.state === 'active' ? ' open' : ''}>
+        <summary><span class="num">${p.id}</span><h3>${esc(p.name)}</h3><span class="pct">${STATE_WORDS[p.state] || ''}${p.state === 'replaced' ? '' : ', ' + p.pct + '%'}</span></summary>
+        <div class="pd-body">
+          <p>${inline(p.summary)}</p>
+          <div class="pd-cols">
+            <div><h4>Done</h4>${p.done.length ? `<ul>${p.done.map(x => `<li>${inline(x)}</li>`).join('')}</ul>` : '<p class="note">Nothing yet.</p>'}</div>
+            <div><h4>Next</h4>${p.next.length ? `<ul>${p.next.map(x => `<li>${inline(x)}</li>`).join('')}</ul>` : '<p class="note">Waits on the phases before it.</p>'}</div>
+          </div>
+          <p class="gate"><b>Gate.</b> ${inline(p.gate)}</p>
+        </div>
+      </details>`).join('');
+
+    $('runs').innerHTML = (S.runs || []).map(m => `
+      <li data-o="${esc(m.outcome || '')}">
+        <span class="n">${esc(m.n)}</span>
+        <div>${inline(m.what)}<div class="res">${inline(m.result)}</div></div>
+        ${m.outcome ? `<span class="state" data-s="${esc(m.outcome)}">${OUT_WORDS[m.outcome] || esc(m.outcome)}</span>` : '<span></span>'}
+      </li>`).join('');
+
+    const card = f => typeof f === 'string' ? `<div><p>${inline(f)}</p></div>` : `<div>${f.title ? `<h3>${inline(f.title)}</h3>` : ''}<p>${inline(f.body || '')}</p></div>`;
+    $('prior-art').innerHTML = (S.prior_art || []).map(a => card({ title: a.name, body: a.what })).join('');
+    $('findings').innerHTML = S.findings.map(card).join('');
+    $('measurements').innerHTML = (S.measurements || []).map(m => `
+      <div>
+        <h3>${inline(m.title)}</h3>
+        <ul class="results">${m.rows.map(a => resultItem(a.what, a.value, a.detail)).join('')}</ul>
+      </div>`).join('');
+    $('rules').innerHTML = S.rules.map(r => `<li>${inline(r)}</li>`).join('');
+    $('unknowns').innerHTML = S.unknowns.map(r => `<li>${inline(r)}</li>`).join('');
+    $('upstream').innerHTML = (S.upstream || []).map(u => `<li><span>${inline(u.what)}</span><span class="amt">${esc(u.name)}</span></li>`).join('');
+    $('credits').innerHTML = (S.credits || []).map(c => `<li><span><b>${esc(c.who)}</b></span><span class="det">${inline(c.how)}</span></li>`).join('');
+    $('credits-section').hidden = !(S.credits && S.credits.length);
+  }
+
+  function renderLatest(entries) {
+    if (!entries || !entries.length) {
+      $('latest').innerHTML = `<p class="error">The work log couldn’t be loaded from GitHub. <a href="${GH}/blob/main/docs/worklog.md">Read it on GitHub</a>.</p>`;
+      return;
+    }
+    const steps = entries.filter(x => x.id);
+    const e = (steps.length ? steps : entries)[(steps.length ? steps : entries).length - 1];
+    const firstBlock = e.body.split(/\n\s*\n/)[0];
+    $('latest').innerHTML = `<div class="latest"><p class="when">${fmtDate(e.date)}${e.id ? ` · step ${esc(e.id)}` : ''}</p><h3>${inline(e.title)}</h3><div class="body md">${renderMd(firstBlock)}</div>
+      <p class="note"><a href="#advanced" data-goto="worklog-section">Read the whole log</a></p></div>`;
+  }
+
+  let logEntries = [], logShowAll = false;
+  function renderLog() {
+    const box = $('log');
+    if (!logEntries.length) {
+      box.innerHTML = `<p class="error">The work log couldn’t be loaded from GitHub. <a href="${GH}/blob/main/docs/worklog.md">Read it on GitHub</a>.</p>`;
+      $('q').disabled = true; return;
+    }
+    const q = $('q').value.trim().toLowerCase();
+    const terms = q.split(/\s+/).filter(Boolean);
+    const list = logEntries.slice().reverse().filter(e => terms.every(t => e.text.includes(t)));
+    const shown = (q || logShowAll) ? list : list.slice(0, 15);
+    $('q-count').textContent = q ? `${list.length} of ${logEntries.length} entries` : `${logEntries.length} entries`;
+    box.innerHTML = shown.map((e, i) => `
+      <details class="entry" data-i="${logEntries.indexOf(e)}"${q && i < 3 ? ' open' : ''}>
+        <summary><time>${fmtDate(e.date) || '—'}</time><span>${sid(e)}${inline(e.title)}</span></summary>
+        <div class="entry-body md"></div>
+      </details>`).join('') || '<p class="note" style="padding:1rem 0">No entries match. Try a shorter word.</p>';
+    box.querySelectorAll('details.entry').forEach(d => {
+      const fill = () => { const b = d.querySelector('.entry-body'); if (!b.dataset.done) { b.innerHTML = renderMd(logEntries[+d.dataset.i].body); b.dataset.done = 1; } };
+      if (d.open) fill();
+      d.addEventListener('toggle', () => { if (d.open) fill(); });
+    });
+    const btn = $('log-more');
+    btn.hidden = !!q || logShowAll || list.length <= 15;
+    btn.textContent = `Show all ${list.length} entries`;
+  }
+
+  function renderCommits(list) {
+    if (!list || !list.length) {
+      const msg = `<li><span class="note">Commits couldn’t be loaded right now (GitHub limits anonymous requests). <a href="${GH}/commits/main">See them on GitHub</a>.</span></li>`;
+      $('commits-short').innerHTML = msg;
+      $('activity-wrap').innerHTML = `<p class="error">Activity couldn’t be loaded right now. <a href="${GH}/commits/main">See the commits on GitHub</a>.</p>`;
+      return null;
+    }
+    const item = c => {
+      const d = new Date(c.commit.committer.date);
+      const msg = c.commit.message.split('\n')[0];
+      return `<li><a href="${esc(c.html_url)}">${inline(msg)}</a><time datetime="${d.toISOString()}" title="${d.toLocaleString()}">${ago(d)}</time></li>`;
+    };
+    $('commits-short').innerHTML = list.slice(0, 6).map(item).join('');
+
+    // commits per day, from the first commit to today
+    const byDay = new Map();
+    list.forEach(c => { const k = c.commit.committer.date.slice(0, 10); byDay.set(k, (byDay.get(k) || 0) + 1); });
+    const keys = [...byDay.keys()].sort();
+    const start = new Date(keys[0] + 'T00:00:00Z'), end = new Date();
+    const days = [];
+    for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) days.push(d.toISOString().slice(0, 10));
+    const max = Math.max(...byDay.values());
+    const bars = days.map(k => { const n = byDay.get(k) || 0; return `<span ${n ? '' : 'data-z="1"'} style="height:${n / max * 100}%" title="${fmtDate(k)}: ${n} commit${n === 1 ? '' : 's'}"></span>`; }).join('');
+    const active = keys.length, total = list.length >= 300 ? '300+' : list.length;
+    const busiest = keys.reduce((a, k) => byDay.get(k) > byDay.get(a) ? k : a, keys[0]);
+    $('activity-wrap').innerHTML = `
+      <div class="activity" role="img" aria-label="Commits per day">${bars}</div>
+      <div class="activity-axis"><span>${fmtDate(days[0])}</span><span>Today</span></div>
+      <div class="stats">
+        <div><b>${total}</b><span>commits</span></div>
+        <div><b>${active}</b><span>days with commits</span></div>
+        <div><b>${byDay.get(busiest)}</b><span>on the busiest day, ${fmtDate(busiest)}</span></div>
+      </div>
+      <h3 style="margin-top:2rem">Latest commits</h3>
+      <ul class="commits">${list.slice(0, 15).map(item).join('')}</ul>`;
+    return new Date(list[0].commit.committer.date);
+  }
+
+  /* ---------- views ---------- */
+  function show(view, scrollTo) {
+    const adv = view === 'advanced';
+    $('overview').hidden = adv; $('advanced').hidden = !adv;
+    $('tab-overview').setAttribute('aria-selected', String(!adv));
+    $('tab-advanced').setAttribute('aria-selected', String(adv));
+    if (scrollTo) { const el = $(scrollTo); if (el) el.scrollIntoView(); }
+  }
+  const fromHash = () => (location.hash === '#advanced' ? 'advanced' : 'overview');
+  $('tab-overview').addEventListener('click', () => { history.replaceState(null, '', '#overview'); show('overview'); });
+  $('tab-advanced').addEventListener('click', () => { history.replaceState(null, '', '#advanced'); show('advanced'); });
+  window.addEventListener('hashchange', () => show(fromHash()));
+  document.addEventListener('click', e => {
+    const a = e.target.closest('[data-goto]');
+    if (!a) return;
+    e.preventDefault(); history.replaceState(null, '', '#advanced'); show('advanced', a.dataset.goto);
+  });
+  $('q').addEventListener('input', renderLog);
+  $('log-more').addEventListener('click', () => { logShowAll = true; renderLog(); });
+
+  /* ---------- the short status message (Cloudflare KV, no rebuild) ---------- */
+  async function loadMessage() {
+    try {
+      const r = await fetch('/api/gpu-message', { cache: 'no-store' });
+      if (!r.ok) return;
+      const m = await r.json();
+      if (!m || !m.text) { $('msg').hidden = true; return; }
+      $('msg-text').textContent = m.text;
+      const t = m.updated ? new Date(m.updated) : null;
+      $('msg-time').textContent = t && !isNaN(t) ? ago(t) : '';
+      if (t && !isNaN(t)) { $('msg-time').dateTime = t.toISOString(); $('msg-time').title = t.toLocaleString(); }
+      $('msg').hidden = false;
+    } catch (e) { /* no message is fine */ }
+  }
+
+  /* ---------- go ---------- */
+  topo();
+  loadMessage();
+  show(fromHash());
+  const snapshot = JSON.parse($('snapshot').textContent);
+  renderStatus(snapshot, snapshot.overall);
+  $('stamp').textContent = `Snapshot of ${fmtDate(snapshot.updated)}`;
+
+  Promise.allSettled([
+    cached('status-json', RAW + 'docs/gpu-status.json', 'json'),
+    cached('status-md', RAW + 'docs/status.md', 'text'),
+    cached('worklog', RAW + 'docs/worklog.md', 'text'),
+    commits()
+  ]).then(([js, smd, wl, cm]) => {
+    const S = js.status === 'fulfilled' && js.value && js.value.phases ? js.value : snapshot;
+    let overall = S.overall;
+    if (smd.status === 'fulfilled') {
+      const m = /about (\d{1,3})% of the way to GPU parity/i.exec(smd.value);
+      if (m) overall = +m[1];
+    }
+    renderStatus(S, overall);
+
+    logEntries = wl.status === 'fulfilled' ? parseLog(wl.value) : [];
+    renderLatest(logEntries);
+    renderLog();
+
+    const last = renderCommits(cm.status === 'fulfilled' ? cm.value : null);
+    const anyLive = js.status === 'fulfilled' || smd.status === 'fulfilled' || wl.status === 'fulfilled' || cm.status === 'fulfilled';
+    $('live').dataset.on = anyLive ? '1' : '0';
+    $('live').textContent = anyLive ? 'Live from GitHub' : 'Snapshot (GitHub unreachable)';
+    $('stamp').textContent = last ? `Last commit ${ago(last)}` : `Status of ${fmtDate(S.updated)}`;
+  });
+})();
+</script>
 </body>
 </html>

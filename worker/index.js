@@ -1,20 +1,25 @@
-// Serves the static site, plus one small API for the S2R status message.
+// Serves the static site, plus one small API for the status message on each
+// project page (/S2R/ and /GPU/).
 //
 //   GET    /api/s2r-message   -> {"text": "...", "updated": "ISO time" | null}
 //   PUT    /api/s2r-message   -> set it; body is plain text or {"text": "..."}
 //   DELETE /api/s2r-message   -> clear it
 //
-// PUT and DELETE need "Authorization: Bearer <STATUS_TOKEN>", a Worker secret.
-// The message can also be edited by hand in the Cloudflare dashboard (KV
-// namespace jjrpf-com-status, key s2r-message); that just has no timestamp.
+// The same for /api/gpu-message. PUT and DELETE need
+// "Authorization: Bearer <STATUS_TOKEN>", a Worker secret. A message can also be
+// edited by hand in the Cloudflare dashboard (KV namespace jjrpf-com-status,
+// keys s2r-message and gpu-message); that just has no timestamp.
 
-const PATH = '/api/s2r-message';
+// API path -> KV key
+const MESSAGES = new Map([
+  ['/api/s2r-message', 's2r-message'],
+  ['/api/gpu-message', 'gpu-message'],
+]);
 
 // Page folders and their canonical spelling. A request that differs only in
 // letter case (/gpu, /Gpu/, /s2r/index.html) is redirected to the canonical one.
 const PAGES = ['S2R', 'GPU'];
 const CANON = new Map(PAGES.map((p) => [p.toLowerCase(), p]));
-const KEY = 's2r-message';
 const MAX = 280;
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
@@ -41,7 +46,7 @@ async function readText(request) {
   return raw;
 }
 
-async function message(request, env) {
+async function message(request, env, KEY) {
   if (request.method === 'GET' || request.method === 'HEAD') {
     const { value, metadata } = await env.STATUS.getWithMetadata(KEY);
     const text = (value || '').trim();
@@ -69,7 +74,8 @@ async function message(request, env) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === PATH) return message(request, env);
+    const key = MESSAGES.get(url.pathname);
+    if (key) return message(request, env, key);
 
     const [, first = '', ...rest] = url.pathname.split('/');
     const canon = CANON.get(first.toLowerCase());
