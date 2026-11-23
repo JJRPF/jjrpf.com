@@ -1,0 +1,181 @@
+{
+  "schema": 1,
+  "updated": "2026-11-22",
+  "overall": 15,
+  "overall_note": "Rough completion for each phase of the plan. The overall figure is a guess set by hand, not a sum.",
+  "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`, G14S GPU, 32 GB), Aurora Silicon Linux",
+  "gap": {
+    "lede": "How long a second client (a stand-in for the desktop) waits for the GPU while one long compute job runs, on this machine today. Measured with `gpuprobe`, a 16 ms tick beside the compute job.",
+    "unit": "ms",
+    "rows": [
+      { "who": "Linux, 6 s job", "kind": "linux", "value": 68, "label": "68 ms", "sub": "p95 wait with one 6 s compute dispatch; 29% of ticks miss a 120 Hz frame. [data](../data/20261122-ramp-default-preempt-long/)" },
+      { "who": "Linux, 3 s job", "kind": "linux", "value": 32, "label": "32 ms", "sub": "p95 wait with one 3 s dispatch; 35% of ticks over 8.3 ms. [data](../data/20261122-ramp-default-preempt/)" },
+      { "who": "Target", "kind": "target", "value": 8.3, "label": "8.3 ms", "sub": "One frame at 120 Hz. Batched 20 ms dispatches already stay under it (p95 0.72 ms)." }
+    ]
+  },
+  "phases": [
+    {
+      "id": 0,
+      "trail": "Research",
+      "name": "Research",
+      "short": "What Aurora Silicon and others already have for Apple GPUs, and what is missing on this chip",
+      "state": "done",
+      "pct": 100,
+      "summary": "Aurora’s kernel, Mesa, `gpubench` and agent guidelines read, plus the Metal-on-Vulkan projects. No Metal API exists for Apple GPUs on Linux, and the kernel turns compute preemption on automatically only for the M2 Max.",
+      "done": [
+        "Kernel source: `compute_preempt` defaults to -1, which means on for chip `0x6021` (M2 Max) only",
+        "linux-aurora#25 read: with preemption, M2 Max owners saw 0 timeouts",
+        "Prior art written up in [prior-art.md](prior-art.md)"
+      ],
+      "next": [],
+      "gate": "A plan with a testable first hypothesis."
+    },
+    {
+      "id": 1,
+      "trail": "Baseline",
+      "name": "Baseline",
+      "short": "Record what the GPU does today, before changing anything",
+      "state": "active",
+      "pct": 70,
+      "summary": "Kernel, driver and GPU error history recorded read-only. `gpubench` core chunks ran clean. A compute probe shows the desktop waiting in proportion to compute dispatch length, which fits missing preemption, but it has not reproduced the #2701 timeouts yet.",
+      "done": [
+        "Identity: `7.2.11-16-1-ARCH`, Borealis (Mesa 26.3.0-devel), `asahi` as a module",
+        "GPU errors in only 2 of 99 boots; the #2701 boot has 116 timeouts",
+        "`gpubench` core-a and core-b: 44 results, 0 timeouts",
+        "`gpuprobe` ramp: single dispatches of 50 ms to 12 s, batched up to 10 s"
+      ],
+      "next": [
+        "Reproduce an actual timeout: several clients at once, or memory pressure",
+        "A FLUX.2 and an ACE-Step run with `journalctl` counts"
+      ],
+      "gate": "A repeatable way to trigger the #2701 timeouts, with its data."
+    },
+    {
+      "id": 2,
+      "trail": "Timeouts",
+      "name": "Fix the compute timeouts",
+      "short": "Long Vulkan compute trips GPU timeouts and corrupts the desktop (#2701)",
+      "state": "started",
+      "pct": 10,
+      "summary": "The leading suspect is that firmware compute preemption is off for this chip. The test is planned in [preempt-test.md](preempt-test.md): one boot with `options asahi compute_preempt=1` in `/etc/modprobe.d/`. It needs a reboot of the shared test Mac, so it waits for the S2R work.",
+      "done": [
+        "Found that a modprobe option is enough: no kernel command line change",
+        "Test plan with three ways to run it and the way back"
+      ],
+      "next": [
+        "Boot with `compute_preempt=1` and rerun the ramp and the real workloads",
+        "Qualify per linux-aurora#25: repeated digests, throughput, compositor concurrency, teardown",
+        "Decide the right rule without a chip gate, draft the patch, report into #2701"
+      ],
+      "gate": "0 timeouts under the #2701 workloads, results correct, throughput cost known."
+    },
+    {
+      "id": 3,
+      "trail": "vs macOS",
+      "name": "Measure against macOS",
+      "short": "The same benchmarks on macOS (Metal) and Linux (Vulkan) on this machine",
+      "state": "todo",
+      "pct": 0,
+      "summary": "No `gpubench` record exists for this chip on macOS. Boot macOS on this Mac, record the suite with the Metal executor, and rank the rows where Linux loses with `tools/performance-gate.py`.",
+      "done": [],
+      "next": [],
+      "gate": "A ranked list of the rows where Linux is slower, with real workloads beside the synthetic ones."
+    },
+    {
+      "id": 4,
+      "trail": "Close gaps",
+      "name": "Close the gaps",
+      "short": "Scheduling, compiler and memory work driven by phase 3",
+      "state": "todo",
+      "pct": 0,
+      "summary": "Each gap from phase 3 becomes its own fix with before and after numbers: compute against compositor scheduling, Borealis compiler and dispatch performance, memory.",
+      "done": [],
+      "next": [],
+      "gate": "Linux at or above macOS on every comparable row."
+    }
+  ],
+  "highlights": [
+    { "what": "GPU errors in the journal", "value": "2 of 99 boots", "detail": "The #2701 boot (116 timeouts, 6 fault dumps) and one timeout right after an out-of-memory kill. [data](../data/20261122-baseline-identity/)" },
+    { "what": "`gpubench` core suite on Linux", "value": "44 results, 0 timeouts", "detail": "No macOS record for this chip exists yet to compare with. [data](../data/20261122-gpubench-baseline/)" },
+    { "what": "Desktop wait beside a 3 s compute dispatch", "value": "32 ms p95", "detail": "2.9 ms at 50 ms dispatches. The wait grows with dispatch length. [data](../data/20261122-ramp-default-preempt/)" },
+    { "what": "The same work split into 20 ms dispatches", "value": "0.72 ms p95", "detail": "Dispatch boundaries let the GPU switch clients. [data](../data/20261122-ramp-default-preempt-batched/)" }
+  ],
+  "pieces": [
+    { "name": "Compute preemption", "state": "open", "known": "Automatic only for M2 Max (`0x6021`). On this kernel `compute_preempt` exists (`modinfo`) but has no sysfs file.", "next": "One boot with `compute_preempt=1`" },
+    { "name": "#2701 timeouts", "state": "partial", "known": "116 timeouts in the reporting boot. Not reproduced by a single synthetic dispatch of up to 12 s.", "next": "Several clients, or memory pressure" },
+    { "name": "Desktop beside compute", "state": "partial", "known": "The second client’s p95 wait grows from 2.9 ms (50 ms dispatch) to 69 ms (12 s). Batched work stays under 1 ms.", "next": "Same ramp with preemption on" },
+    { "name": "Kill and teardown", "state": "open", "known": "linux-aurora#335 faults on M1 were fixed in 7.3.0-2-20261110.1. Not checked on t6020.", "next": "Kill a client mid-dispatch during qualification" },
+    { "name": "Linux benchmark baseline", "state": "works", "known": "`gpubench` core-a and core-b recorded on Borealis, 0 timeouts.", "next": "`multi`, `feat` and the stress suite" },
+    { "name": "macOS reference", "state": "open", "known": "No Metal record for t6020 in `gpubench`.", "next": "Phase 3" },
+    { "name": "Freed dma-buf memory", "state": "open", "known": "metal2vulkan reports the asahi driver keeps freed dma-buf imports past process exit.", "next": "Run its reproducer here" }
+  ],
+  "runs": [
+    { "n": "G29", "what": "GPU error history across the whole journal", "result": "2 of 99 boots with errors; 116 timeouts in the #2701 boot", "outcome": "info" },
+    { "n": "G31", "what": "`gpubench` core-a and core-b, preemption at the default", "result": "44 results, 0 timeouts or faults", "outcome": "pass" },
+    { "n": "G32", "what": "`gpuprobe` sanity run, 20 ms dispatches", "result": "Calibrated to 20.3 ms, hashes identical", "outcome": "pass" },
+    { "n": "G34", "what": "Ramp, one dispatch per submission, 50 ms to 3 s", "result": "0 timeouts; the second client’s p95 wait rises from 2.9 to 32 ms", "outcome": "info" },
+    { "n": "G35", "what": "Ramp, batched 20 ms dispatches, 100 ms to 10 s", "result": "0 timeouts; p95 wait 0.72 to 0.79 ms from 800 ms up", "outcome": "pass" },
+    { "n": "G36", "what": "Single dispatches of 6 s and 12 s", "result": "0 timeouts, 0 hash mismatches; p95 wait 68 to 69 ms, max 168 ms", "outcome": "info" },
+    { "n": "Next", "what": "One boot with `compute_preempt=1`, same ramp and workloads", "result": "Waits for the S2R work’s go-ahead to reboot", "outcome": "" }
+  ],
+  "prior_art": [
+    { "name": "linux-aurora#25", "what": "G14X compute preemption: automatic on M2 Max, opt-in on Pro and Ultra pending qualification. 0 timeouts with it on M2 Max; about 1% throughput cost there, 12 to 20% on M1 decode." },
+    { "name": "linux-aurora#389", "what": "M3 Pro: long compute delays the compositor 40 to 200 ms. The fix caps compute batch time while another client waits. Different backend from G14X." },
+    { "name": "linux-aurora#440", "what": "G15C: llama.cpp prefill trips the compute deadline and the GPU fail-stops until reboot." },
+    { "name": "gpubench", "what": "Matched Vulkan and Metal benchmarks and a gate: Linux must beat the macOS reference on every comparable row." },
+    { "name": "metal2vulkan", "what": "A Metal runtime on Vulkan. Its docs already list Honeykrisp on the M2 Pro as missing raster-order access and pixel interlock." }
+  ],
+  "findings": [
+    { "title": "Compute preemption is off on the M2 Pro", "body": "The kernel turns it on automatically only for chip `0x6021`. Without it the firmware cannot switch compute out for another client, and on G14X it kills the work when its timeouts expire." },
+    { "title": "The desktop waits in proportion to the compute dispatch", "body": "One dispatch of 50 ms gives a p95 wait of 2.9 ms; 3 s gives 32 ms; 6 to 12 s gives 68 to 69 ms, with up to 35% of 16 ms ticks over a 120 Hz frame." },
+    { "title": "Dispatch boundaries are switch points", "body": "The same work as 20 ms dispatches in one submission keeps the p95 wait at 0.72 to 0.79 ms. Only a single long kernel hurts." },
+    { "title": "A long dispatch alone does not time out", "body": "No timeout up to a 12 s synthetic dispatch. The #2701 boot had 116 under llama.cpp-style load, so the trigger likely needs more than one client or memory pressure." },
+    { "title": "GPU errors are rare outside #2701", "body": "2 of 99 boots in the journal. The other one is a single timeout right after a global out-of-memory kill." },
+    { "title": "A modprobe option is enough for the test", "body": "`asahi` is a module and `modinfo` lists `compute_preempt`, so `options asahi compute_preempt=1` works at boot. The kernel command line stays default." }
+  ],
+  "measurements": [
+    {
+      "title": "One long dispatch",
+      "rows": [
+        { "what": "50 ms", "value": "2.9 ms p95", "detail": "0% over 8.3 ms" },
+        { "what": "800 ms", "value": "6.5 ms p95", "detail": "1.6% over 8.3 ms, max 29 ms" },
+        { "what": "1.5 s", "value": "12.9 ms p95", "detail": "29.7% over 8.3 ms" },
+        { "what": "3 s", "value": "32 ms p95", "detail": "34.9% over 8.3 ms, max 70 ms" },
+        { "what": "6 s", "value": "68 ms p95", "detail": "28.9% over 8.3 ms, max 100 ms" },
+        { "what": "12 s", "value": "69 ms p95", "detail": "23.7% over 8.3 ms, max 168 ms" }
+      ]
+    },
+    {
+      "title": "Batched 20 ms dispatches",
+      "rows": [
+        { "what": "100 ms", "value": "2.7 ms p95", "detail": "0% over 8.3 ms" },
+        { "what": "800 ms", "value": "0.79 ms p95", "detail": "max 7.4 ms" },
+        { "what": "3 s", "value": "0.72 ms p95", "detail": "max 6.0 ms" },
+        { "what": "10 s", "value": "0.72 ms p95", "detail": "max 4.1 ms" }
+      ]
+    }
+  ],
+  "rules": [
+    "Log a boot-affecting step in the worklog first, with the way back.",
+    "No GPU test reboot without the S2R work’s go-ahead: the Mac is shared.",
+    "Every number in `docs/` points at a folder in `data/`.",
+    "`journalctl -k` reads only the current boot. Use `-t kernel` to count across boots.",
+    "The harness writes results to `data/` itself, not only to a terminal that may die.",
+    "Fix the cause with the default command line, and no chip or board gates."
+  ],
+  "unknowns": [
+    "Whether `compute_preempt=1` stops the #2701 timeouts on t6020.",
+    "What it costs in throughput on the M2 Pro.",
+    "What triggers the #2701 timeouts, since a single 12 s dispatch does not.",
+    "How far Borealis is from Metal on this chip, per workload.",
+    "Whether the linux-aurora#335 kill and teardown fault also applies to t6020."
+  ],
+  "upstream": [
+    { "name": "aurora-silicon/linux#2701", "what": "The issue: compute timeouts and desktop corruption on J414s" }
+  ],
+  "credits": [
+    { "who": "Aurora Silicon", "how": "The kernel, the Borealis Vulkan driver and `gpubench`, which this work measures and builds on." },
+    { "who": "Honeykrisp", "how": "The Vulkan driver Borealis is derived from." },
+    { "who": "The M2 Max owners in linux-aurora#25", "how": "Their preemption results are the hypothesis this work tests on the M2 Pro." }
+  ]
+}
