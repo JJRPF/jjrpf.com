@@ -18,7 +18,7 @@ const MESSAGES = new Map([
 
 // Page folders and their canonical spelling. A request that differs only in
 // letter case (/gpu, /Gpu/, /s2r/index.html) is redirected to the canonical one.
-const PAGES = ['S2R', 'GPU'];
+const PAGES = ['S2R', 'GPU', 'touch'];
 const CANON = new Map(PAGES.map((p) => [p.toLowerCase(), p]));
 const MAX = 280;
 

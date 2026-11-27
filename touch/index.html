@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Wake on touch | Justin Pfister</title>
+<meta name="description" content="A page that sleeps until you touch it, the two messages hidden in a sleep log, and the real suspend-to-RAM work behind them.">
+<meta property="og:title" content="Wake on touch">
+<meta property="og:description" content="A page that sleeps until you touch it, and the suspend-to-RAM work behind it.">
+<link rel="canonical" href="https://jjrpf.com/touch/">
+<meta property="og:url" content="https://jjrpf.com/touch/">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='11' y='4' width='10' height='24' rx='1.5' fill='%23F2C12E'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,700;12..96,800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #EEF1EC;
+    --surface: #E2E7E0;
+    --ink: #17201C;
+    --muted: #56625B;
+    --line: #C3CCC3;
+    --moss: #2E5E45;
+    --blaze: #F2C12E;
+    --contour: #9DB0A2;
+    --night: #0B0F0D;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141A17; --surface: #1C2420; --ink: #E4EAE3; --muted: #97A49B;
+      --line: #2F3A34; --moss: #8FC4A3; --blaze: #E8B828; --contour: #33443A;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141A17; --surface: #1C2420; --ink: #E4EAE3; --muted: #97A49B;
+    --line: #2F3A34; --moss: #8FC4A3; --blaze: #E8B828; --contour: #33443A;
+    color-scheme: dark;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    font-optical-sizing: auto;
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  a { color: inherit; text-decoration-color: var(--line); text-underline-offset: 0.2em; text-decoration-thickness: 1.5px; }
+  a:hover { text-decoration-color: var(--moss); }
+  a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--moss); outline-offset: 3px; border-radius: 2px; }
+  code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  code { font-size: 0.88em; background: var(--surface); padding: 0.1em 0.35em; border-radius: 4px; }
+
+  .wrap { max-width: 44rem; margin: 0 auto; padding: 0 1.5rem; }
+
+  /* Hero */
+  .hero { border-bottom: 1px solid var(--line); }
+  .hero .wrap { padding-top: clamp(1.5rem, 4vw, 2rem); padding-bottom: clamp(2rem, 6vw, 3rem); }
+  .home { display: inline-block; color: var(--muted); font-size: 0.95rem; text-decoration: none; margin-bottom: clamp(2.5rem, 9vw, 4.5rem); }
+  .home:hover { color: var(--ink); }
+  h1 { font-size: clamp(2.5rem, 9vw, 4.75rem); font-weight: 800; line-height: 0.95; letter-spacing: -0.035em; margin: 0 0 1.4rem; }
+  .intro { font-size: 1.25rem; line-height: 1.5; max-width: 34rem; margin: 0; }
+
+  section { padding: 3rem 0 0.5rem; }
+  h2 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.015em; margin: 0 0 1rem; }
+  section > .wrap > p { max-width: 36rem; margin: 0 0 1rem; }
+  .muted { color: var(--muted); }
+
+  /* The log */
+  .log { margin: 1.25rem 0 1rem; padding: 1rem 1.1rem; background: var(--surface); border-radius: 8px; font-size: 0.86rem; line-height: 1.9; overflow-x: auto; }
+  .log div { white-space: nowrap; }
+  .log .t { color: var(--muted); }
+  .reg {
+    font: inherit; color: inherit; cursor: pointer;
+    background: transparent; border: 1px dashed var(--contour); border-radius: 4px;
+    padding: 0 0.3em; margin: 0;
+    transition: background-color 0.2s, border-color 0.2s;
+  }
+  .reg:hover { border-color: var(--moss); }
+  .reg[aria-pressed="true"] { background: var(--blaze); border: 1px solid var(--blaze); color: #17201C; white-space: pre; }
+  .progress { font-size: 0.95rem; color: var(--muted); margin: 0 0 1rem; }
+  .progress b { color: var(--ink); }
+  .phrase { font-size: clamp(1.4rem, 5vw, 2rem); font-weight: 800; letter-spacing: -0.02em; margin: 0.25rem 0 1rem; }
+  .phrase[hidden] { display: none; }
+  details { margin: 0 0 1rem; }
+  summary { cursor: pointer; color: var(--muted); font-size: 0.95rem; }
+  details table { border-collapse: collapse; margin-top: 0.75rem; font-size: 0.88rem; }
+  details td { padding: 0.15rem 1rem 0.15rem 0; }
+
+  /* Left edge */
+  .edge { list-style: none; padding: 0; margin: 1.25rem 0 1rem; display: grid; gap: 0.35rem; }
+  .edge li { font-size: 1.2rem; }
+  .edge li::first-letter { color: var(--moss); font-weight: 800; font-size: 1.6em; }
+
+  /* Morse */
+  .morse { font-size: 1.35rem; letter-spacing: 0.2em; margin: 0.5rem 0 1rem; }
+  .morse span { margin-right: 1.2rem; white-space: nowrap; }
+  .morse small { font-family: "Bricolage Grotesque", system-ui, sans-serif; letter-spacing: 0; font-size: 0.8rem; color: var(--muted); margin-left: 0.3rem; }
+
+  /* Timeline */
+  .trail { list-style: none; padding: 0; margin: 1.25rem 0 1rem; }
+  .trail li { display: grid; grid-template-columns: 0.7rem 1fr; column-gap: 1.1rem; margin-bottom: 1rem; }
+  .trail .blaze { width: 0.7rem; height: 1.6rem; background: var(--blaze); border-radius: 2px; margin-top: 0.25rem; }
+  .trail b { display: block; }
+
+  .lid {
+    font: inherit; font-weight: 700; cursor: pointer;
+    background: var(--ink); color: var(--bg); border: 0; border-radius: 999px;
+    padding: 0.7rem 1.4rem; margin: 1rem 0 0;
+  }
+  .lid:hover { background: var(--moss); }
+
+  footer { margin-top: 4rem; padding: 2rem 0 3rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.95rem; }
+  footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; }
+  footer nav { display: flex; gap: 1.25rem; }
+
+  /* Asleep: the whole page goes dark and waits for a touch. Only drawn when scripts run. */
+  .sleep {
+    position: fixed; inset: 0; z-index: 10;
+    background: var(--night); color: #97A49B;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.5rem;
+    cursor: pointer; border: 0; width: 100%; font: inherit;
+    opacity: 1; transition: opacity 0.6s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .sleep[hidden] { display: none; }
+  .sleep.waking { opacity: 0; pointer-events: none; }
+  .led {
+    width: 0.55rem; height: 0.55rem; border-radius: 50%;
+    background: #3a3f3c; transition: background-color 0.06s, box-shadow 0.06s;
+  }
+  .led.on { background: #F4F7F3; box-shadow: 0 0 10px 3px rgba(244, 247, 243, 0.55); }
+  .sleep .hint { font-size: 0.95rem; opacity: 0; transition: opacity 1.2s ease; margin: 0; }
+  .sleep .hint.show { opacity: 1; }
+  .sleep .resume { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.8rem; min-height: 3.6em; text-align: left; margin: 0; white-space: pre; color: #8FC4A3; }
+  @media (prefers-reduced-motion: reduce) {
+    .sleep, .sleep .hint { transition: none; }
+    .led { background: #9aa39d; }
+  }
+</style>
+</head>
+<body>
+
+<button class="sleep" type="button" id="sleep" aria-label="This page is asleep. Press to wake it." hidden>
+  <span class="led" id="led" aria-hidden="true"></span>
+  <p class="hint" id="hint">Asleep. Touch anywhere to wake it.</p>
+  <p class="resume" id="resume" aria-hidden="true"></p>
+</button>
+
+<header class="hero">
+  <div class="wrap">
+    <a class="home" href="/">← Justin Pfister</a>
+    <h1>Wake on<br>touch</h1>
+    <p class="intro">This page sleeps until you touch it. If you came here from my sleep log email, here’s what’s hidden in it, and the true story behind it.</p>
+  </div>
+</header>
+
+<main>
+  <section>
+    <div class="wrap">
+      <h2>The log</h2>
+      <p>The register values aren’t real. Each one is four letters in ASCII. Tap a value to read it.</p>
+      <div class="log mono" id="log">
+        <div><span class="t">[ 9142.118]</span> apple-pmgr: ps_disp0 state=<button class="reg" type="button" aria-pressed="false">0x49205749</button></div>
+        <div><span class="t">[ 9142.120]</span> apple-smc: slpa ack=<button class="reg" type="button" aria-pressed="false">0x4c4c204d</button></div>
+        <div><span class="t">[ 9142.131]</span> aic: wake mask=<button class="reg" type="button" aria-pressed="false">0x414b4520</button></div>
+        <div><span class="t">[ 9142.207]</span> pmu: vdd_soc=<button class="reg" type="button" aria-pressed="false">0x49542053</button></div>
+        <div><span class="t">[ 9142.415]</span> PM: suspend entry, resume vector=<button class="reg" type="button" aria-pressed="false">0x4c454550</button></div>
+      </div>
+      <p class="progress" id="progress" aria-live="polite"><b>0</b> of 5 decoded</p>
+      <p class="phrase" id="phrase" hidden>“I WILL MAKE IT SLEEP”</p>
+      <details>
+        <summary>Show the decoding</summary>
+        <table class="mono">
+          <tr><td>0x49205749</td><td>49 20 57 49</td><td>“I WI”</td></tr>
+          <tr><td>0x4c4c204d</td><td>4c 4c 20 4d</td><td>“LL M”</td></tr>
+          <tr><td>0x414b4520</td><td>41 4b 45 20</td><td>“AKE ”</td></tr>
+          <tr><td>0x49542053</td><td>49 54 20 53</td><td>“IT S”</td></tr>
+          <tr><td>0x4c454550</td><td>4c 45 45 50</td><td>“LEEP”</td></tr>
+        </table>
+      </details>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>Down the left edge</h2>
+      <p>The paragraphs after the log start with these words.</p>
+      <ul class="edge">
+        <li>The</li>
+        <li>Over</li>
+        <li>Unsupported</li>
+        <li>Can’t</li>
+        <li>Hope</li>
+      </ul>
+      <p>Together the two messages say what I’d do with a touchscreen MacBook Pro: touch, and I will make it sleep.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>The sleep light</h2>
+      <p>There’s a third message, and it was on this page before you woke it. The sleep light wasn’t breathing. It was blinking Morse code.</p>
+      <p class="morse mono" aria-label="Dash, T. Dot dash, A. Dot dash dash dot, P.">
+        <span>−<small>T</small></span><span>·−<small>A</small></span><span>·−−·<small>P</small></span>
+      </p>
+      <p>It was telling you how to wake it.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>What’s real</h2>
+      <p>The sleep work in the email is real. My M2 Pro MacBook Pro runs Aurora Silicon Linux, and it couldn’t truly sleep: with the lid closed, Linux drew about 1.4 W, where macOS sleeps at about 0.24 W.</p>
+      <ul class="trail">
+        <li><span class="blaze"></span><div><b>October 15, 2026</b>First commit to <a href="https://github.com/JJRPF/Aurora-DeepIdle">Aurora-DeepIdle</a>, research into deep idle on the M2 Pro (<code>T6020</code>, <code>J414s</code>).</div></li>
+        <li><span class="blaze"></span><div><b>November 18</b>First real suspend-to-RAM sleep on the M2 Pro, woken by its alarm.</div></li>
+        <li><span class="blaze"></span><div><b>November 20</b>Linux back in userspace after a real suspend-to-RAM.</div></li>
+      </ul>
+      <p>That’s a little over a month from the first commit to waking up. It works on a test boot today; making lid close just work every day is the last stretch. <a href="/S2R/">Live status and test results</a>.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>The next machine</h2>
+      <p>The touchscreen MacBook Pro runs on the M5 Pro and M5 Max. Linux already boots the non-touch 16-inch M5 Pro (<code>J716s</code>), with the display, keyboard, trackpad, GPU, Wi-Fi, Bluetooth and suspend-to-idle working, according to the <a href="https://github.com/rolotrealanis98/m4-m5-linux">m4-m5-linux tracker</a> as of November 8.</p>
+      <p>The tracker has no row for a touchscreen, and no M5 has real suspend-to-RAM yet. Those are the two things I’d work on: teach it to feel a touch, and teach it to sleep.</p>
+      <button class="lid" type="button" id="close">Close the lid</button>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© <span id="year">2026</span> Justin Pfister</span>
+    <nav><a href="/">Home</a><a href="https://github.com/JJRPF">GitHub</a></nav>
+  </div>
+</footer>
+
+<script>
+  document.getElementById('year').textContent = new Date().getFullYear();
+
+  // Decoding: each value is read from its own hex, not from a stored answer.
+  (function () {
+    const regs = [...document.querySelectorAll('.reg')];
+    const progress = document.getElementById('progress');
+    const phrase = document.getElementById('phrase');
+    const ascii = hex => hex.slice(2).match(/../g).map(b => String.fromCharCode(parseInt(b, 16))).join('');
+    regs.forEach(btn => {
+      btn.dataset.hex = btn.textContent;
+      btn.setAttribute('aria-label', 'Register value ' + btn.dataset.hex + '. Press to read as text.');
+      btn.addEventListener('click', () => {
+        const on = btn.getAttribute('aria-pressed') !== 'true';
+        btn.setAttribute('aria-pressed', on);
+        btn.textContent = on ? '“' + ascii(btn.dataset.hex) + '”' : btn.dataset.hex;
+        const n = regs.filter(r => r.getAttribute('aria-pressed') === 'true').length;
+        progress.innerHTML = '<b>' + n + '</b> of 5 decoded';
+        phrase.hidden = n < regs.length;
+      });
+    });
+  })();
+
+  // Sleep and wake. The light blinks T A P in Morse while the page is asleep.
+  (function () {
+    const sleep = document.getElementById('sleep');
+    const led = document.getElementById('led');
+    const hint = document.getElementById('hint');
+    const resume = document.getElementById('resume');
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    const UNIT = 240;
+    const code = ['-', '.-', '.--.'];
+    // [on?, units] steps: dot 1, dash 3, gap in a letter 1, between letters 3, before repeating 10.
+    const steps = [];
+    code.forEach((letter, li) => {
+      [...letter].forEach((s, si) => {
+        steps.push([true, s === '.' ? 1 : 3]);
+        steps.push([false, si < letter.length - 1 ? 1 : (li < code.length - 1 ? 3 : 10)]);
+      });
+    });
+
+    let timer = null, hintTimer = null, i = 0, asleep = false;
+    function blink() {
+      const [on, units] = steps[i];
+      led.classList.toggle('on', on);
+      i = (i + 1) % steps.length;
+      timer = setTimeout(blink, units * UNIT);
+    }
+
+    function goToSleep() {
+      asleep = true;
+      resume.textContent = '';
+      hint.classList.remove('show');
+      sleep.classList.remove('waking');
+      sleep.hidden = false;
+      document.body.style.overflow = 'hidden';
+      i = 0;
+      if (!reduce) blink();
+      hintTimer = setTimeout(() => hint.classList.add('show'), reduce ? 0 : 9000);
+      sleep.focus({ preventScroll: true });
+    }
+
+    function wake(source) {
+      if (!asleep) return;
+      asleep = false;
+      clearTimeout(timer); clearTimeout(hintTimer);
+      led.classList.remove('on');
+      hint.classList.remove('show');
+      resume.textContent = 'PM: suspend exit\nwake source: ' + source + '\nGood morning.';
+      setTimeout(() => {
+        sleep.classList.add('waking');
+        document.body.style.overflow = '';
+        setTimeout(() => { sleep.hidden = true; }, reduce ? 0 : 600);
+      }, reduce ? 300 : 1100);
+    }
+
+    sleep.addEventListener('pointerdown', e => wake(e.pointerType === 'touch' ? 'touch' : e.pointerType === 'pen' ? 'pen' : 'pointer'));
+    sleep.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); wake('keyboard'); } });
+    sleep.addEventListener('click', e => { if (e.detail === 0) wake('keyboard'); });
+
+    document.getElementById('close').addEventListener('click', () => {
+      window.scrollTo({ top: 0 });
+      goToSleep();
+    });
+
+    goToSleep();
+  })();
+</script>
+</body>
+</html>
