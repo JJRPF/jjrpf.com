@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Wake on touch | Justin Pfister</title>
-<meta name="description" content="A page that sleeps until you touch it, the two messages hidden in a sleep log, and the real suspend-to-RAM work behind them.">
+<meta name="description" content="A page that sleeps until you touch it, the message hidden in a sleep log, and the real suspend-to-RAM work behind it.">
 <meta property="og:title" content="Wake on touch">
 <meta property="og:description" content="A page that sleeps until you touch it, and the suspend-to-RAM work behind it.">
 <link rel="canonical" href="https://jjrpf.com/avec-touch/">
@@ -169,22 +169,18 @@
       <h2>The log</h2>
       <p>The register values aren’t real. Each one is four letters in ASCII. Tap a value to read it.</p>
       <div class="log mono" id="log">
-        <div><span class="t">[ 9142.118]</span> apple-pmgr: ps_disp0 state=<button class="reg" type="button" aria-pressed="false">0x49205749</button></div>
-        <div><span class="t">[ 9142.120]</span> apple-smc: slpa ack=<button class="reg" type="button" aria-pressed="false">0x4c4c204d</button></div>
+        <div><span class="t">[ 9142.118]</span> apple-pmgr: ps_disp0 state=<button class="reg" type="button" aria-pressed="false">0x544f2057</button></div>
         <div><span class="t">[ 9142.131]</span> aic: wake mask=<button class="reg" type="button" aria-pressed="false">0x414b4520</button></div>
-        <div><span class="t">[ 9142.207]</span> pmu: vdd_soc=<button class="reg" type="button" aria-pressed="false">0x49542053</button></div>
-        <div><span class="t">[ 9142.415]</span> PM: suspend entry, resume vector=<button class="reg" type="button" aria-pressed="false">0x4c454550</button></div>
+        <div><span class="t">[ 9142.415]</span> PM: suspend entry, resume vector=<button class="reg" type="button" aria-pressed="false">0x4d452e20</button></div>
       </div>
-      <p class="progress" id="progress" aria-live="polite"><b>0</b> of 5 decoded</p>
-      <p class="phrase" id="phrase" hidden>“I WILL MAKE IT SLEEP”</p>
+      <p class="progress" id="progress" aria-live="polite"><b>0</b> of 3 decoded</p>
+      <p class="phrase" id="phrase" hidden>“TO WAKE ME.”</p>
       <details>
         <summary>Show the decoding</summary>
         <table class="mono">
-          <tr><td>0x49205749</td><td>49 20 57 49</td><td>“I WI”</td></tr>
-          <tr><td>0x4c4c204d</td><td>4c 4c 20 4d</td><td>“LL M”</td></tr>
+          <tr><td>0x544f2057</td><td>54 4f 20 57</td><td>“TO W”</td></tr>
           <tr><td>0x414b4520</td><td>41 4b 45 20</td><td>“AKE ”</td></tr>
-          <tr><td>0x49542053</td><td>49 54 20 53</td><td>“IT S”</td></tr>
-          <tr><td>0x4c454550</td><td>4c 45 45 50</td><td>“LEEP”</td></tr>
+          <tr><td>0x4d452e20</td><td>4d 45 2e 20</td><td>“ME. ”</td></tr>
         </table>
       </details>
     </div>
@@ -192,7 +188,7 @@
 
   <section>
     <div class="wrap">
-      <h2>Down the left edge</h2>
+      <h2>The first words</h2>
       <p>The paragraphs after the log start with these words.</p>
       <ul class="edge">
         <li>The</li>
@@ -201,14 +197,14 @@
         <li>Can’t</li>
         <li>Hope</li>
       </ul>
-      <p>Together the two messages say what I’d do with a touchscreen MacBook Pro: touch, and I will make it sleep.</p>
+      <p>Read their first letters, then the log: <b>TOUCH TO WAKE ME.</b> That’s what this page does, and what I’d teach a touchscreen MacBook Pro to do under Linux.</p>
     </div>
   </section>
 
   <section>
     <div class="wrap">
       <h2>The sleep light</h2>
-      <p>There’s a third message, and it was on this page before you woke it. The sleep light wasn’t breathing. It was blinking Morse code.</p>
+      <p>There’s one more message, and it was on this page before you woke it. The sleep light wasn’t breathing. It was blinking Morse code.</p>
       <p class="morse mono" aria-label="Dash, T. Dot dash, A. Dot dash dash dot, P.">
         <span>−<small>T</small></span><span>·−<small>A</small></span><span>·−−·<small>P</small></span>
       </p>
@@ -263,7 +259,7 @@
         btn.setAttribute('aria-pressed', on);
         btn.textContent = on ? '“' + ascii(btn.dataset.hex) + '”' : btn.dataset.hex;
         const n = regs.filter(r => r.getAttribute('aria-pressed') === 'true').length;
-        progress.innerHTML = '<b>' + n + '</b> of 5 decoded';
+        progress.innerHTML = '<b>' + n + '</b> of 3 decoded';
         phrase.hidden = n < regs.length;
       });
     });
