@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "updated": "2026-11-21",
-  "overall": 75,
-  "overall_note": "Risk-weighted guess with a wide error bar. The page prefers the live figure in `docs/status.md` when it can read one.",
+  "updated": "2026-11-27T14:00:00-05:00",
+  "overall": 60,
+  "overall_note": "Risk-weighted guess with a wide error bar. Down from 99 on 2026-11-26: S2R still works from the live desktop through Aura's PSCI path, but Aurora asked for the kernel's drivers/soc/apple/sleep.c as the route, so the figure now counts that route. Its T6020 profile is written and every pm_test level passes in a RAM-only root; on the desktop boot the platform level hangs and the real commit has not run through it. Not yet tested on that route: lid, dock, Bluetooth pairing, SD card, speakers, cancelled sleep.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
   "goal": {
-    "linux_w": 1.4,
+    "linux_w": 0.375,
     "macos_w": 0.24,
-    "linux_night": "23% of the battery a night, about 1.7 days from full with the lid closed",
+    "linux_night": "5% of the battery over a 7.1 h night, about 6 days from full with the lid closed (one night, extrapolated)",
     "macos_night": "5.9 h lid closed on battery, 98.7% of it in S2R"
   },
   "phases": [
@@ -103,11 +103,13 @@
       "id": 4,
       "trail": "Devices",
       "name": "Devices survive power loss",
-      "short": "NVMe, USB, SMC, SEP, PCIe, Wi-Fi",
+      "short": "NVMe, USB, SMC, SEP, PCIe, Wi-Fi, BT, SD, Display, GPU",
       "state": "active",
-      "pct": 65,
-      "summary": "Each device has to come back after its power is really removed. After a real S2R wake, NVMe (the ANS cold-started with its buffers kept), USB, the SMC, the RTC, the SEP, the keyboard and the PMP all work again, every run since R59L. The internal PCIe controller is restored word for word (R60I). Wi-Fi/Bluetooth and the SD reader do not come back: their link stays in Detect because the endpoints have no power, and the SMC and PMU stay in a sleep power state (SMC `MEPS` 1) after `waka`. Nothing we can write from Linux moves them; we have asked nekolyanich and Andreas Fernandez what their machines show.",
+      "pct": 75,
+      "summary": "On the Aura path every core device came back after a real S2R with zero userspace unbinds (R62Y-4): NVMe, USB, SMC, RTC, SEP, PMP, Wi-Fi, Bluetooth, SD card, display and the G14S GPU. The kernel route has to carry that. Its `devices` level passes, and so does `platform` in a RAM-only root, but the ANS does not come back after a refused sleep (`ANS did not boot`), and each device-side fix (AIC2, SEP DART, DCP/G14S warm restart, ATC, audio, PMU alarm) still needs its own small PR tested on the J414s.",
       "done": [
+        "Wi-Fi/Bluetooth and the SD reader after a real cut (R61P, R61Q): with Aura's PCIe power-off at the commit left out, both links train on the first relink, brcmfmac loads the BCM4388 firmware, hci0 comes up and the GL9755 SD controller is found, 3 of 3 (R61P to R61R). In R61Q Wi-Fi scanned 51 networks and joined the home network",
+        "Internal display after a real cut (R61M6, R61M7): the DCP firmware's `__DATA` is restored from macOS's DCP.img4 with iBoot's tagged block kept, then a plain RTKit restart. After that the iBoot disp0 service gets SetPower(1) and SetMode, and then the normal IOMFB start runs. Result: panel detected with 6 modes, panel rail back at 1.29 V, no crash, 2 of 2",
         "NVMe after a real cut: the ANS idled with its RTKit buffers kept, cold-started after the wake with the ADT tunables Aura publishes; 5 of 5 since R59L (after Andreas Fernandez's t6000 NVMe work)",
         "USB after a real cut: the dwc3 cores restarted, the i2c-pasemi controller set up again (R59R onwards)",
         "SMC, RTC, keyboard and SEP after a real cut, every run since R57AL",
@@ -124,8 +126,8 @@
         "SEP: SLEEP acknowledged and the enclave gated as macOS has it (R18K)"
       ],
       "next": [
-        "Wi-Fi/BT and the SD reader: get the SMC/PMU out of their sleep power state after `waka` (answers asked for on issue #5)",
-        "DCP (display) after a real cut",
+        "ANS after a refused or real sleep on the kernel route",
+        "The device-side PRs, one per driver, each tested on the J414s",
         "20 cycles per device with the power really removed"
       ],
       "gate": "Each device passes 20 cycles with its power actually removed."
@@ -136,8 +138,8 @@
       "name": "Full S2R",
       "short": "The SoC powers down, DRAM in self-refresh",
       "state": "active",
-      "pct": 80,
-      "summary": "Works on the test boot: a real SLP_S2R sleep (PMGR `SLP_S2R` counter), the RTC alarm wake through RVBAR, and Linux back in userspace with all 10 CPUs, every run since R57AL, including a 5-minute sleep (R59P). NVMe, USB, the SMC and the SEP come back. Not yet: Wi-Fi and the SD reader, the display after a cut, drain measured over hours, and running it on the normal install (Aura and U-Boot in the main boot chain need the owner's go-ahead).",
+      "pct": 45,
+      "summary": "Proven on the Aura path: a night on battery (7.14 h lid closed) spent 99.6% of the time in S2R at 0.375 W, 20 of 20 plus 10 of 10 soak cycles. Being reworked into the kernel's `drivers/soc/apple/sleep.c`, the route Aurora asked for. The T6020 profile is written (Aura's recipe, checked against the macOS traces) and every pm_test level passes in a RAM-only root. Not yet: on the desktop boot the platform level hangs hard, and the real commit has not run through the new path.",
       "done": [
         "R59P: a 5-minute S2R sleep, resumed to userspace with NVMe live and a clean reboot after (2026-11-20)",
         "R57AL: Linux resumes to userspace after a real S2R sleep, reproduced in every run since",
@@ -178,9 +180,8 @@
         "2026-11-11, R20b, R20c, R21, R22B (images 70 to 72): APSC off late, EDPRCR cleared on every core, the alarm moved to +70 s: the same reset at the same time"
       ],
       "next": [
-        "Wi-Fi and the SD reader after the wake (phase 4)",
-        "Drain over a whole night, and 20 cycles in a row",
-        "The kernel patches cleaned (TEST code out) and moved onto the rebased linux-aurora base"
+        "Find what the desktop state adds that hangs the platform level (userspace, disk root); a reset that works for a hard stall comes first",
+        "Run the commit through sleep.c, then repeat cycles and the long sleep"
       ],
       "gate": "20 of 20 cycles; lid, key, keyboard and alarm wakes; about 0.3 W on battery."
     },
@@ -189,11 +190,22 @@
       "trail": "Daily use",
       "name": "Daily use",
       "short": "Lid close just works",
-      "state": "todo",
-      "pct": 0,
-      "summary": "U-Boot passes Aura’s PSCI table on, Omarchy’s suspend uses `deep`, and the patches go to Aurora’s trees.",
-      "done": [],
-      "next": [],
+      "state": "active",
+      "pct": 70,
+      "summary": "S2R is the default boot through Aura 129 and stays so; this keeps working while the kernel route lands. Left: the PRs to Aurora's trees (the sleep.c PR first), which change the shipped mechanism when they merge, and the hands-on checks: lid, dock/external display, Bluetooth pairing, SD card after a wake, speakers, a cancelled sleep. The root key in the UKI stays.",
+      "done": [
+        "`/OmarchyS2R` boot entry with the S2R UKI; stock Omarchy entry untouched, boot.bin backed up",
+        "`MemorySleepMode=deep`, T6020 prep service and a sleep hook for repeat cycles",
+        "Real `systemctl suspend` from Hyprland: 997.8 s asleep, clean wake (owner-confirmed)",
+        "Aura 129 persistent in `boot.bin`; plain reboot lands in `7.3.0-s2r73+` with 'Speaker volumes unlocked'; stock and one-shot loader images kept on the ESP",
+        "Speakers before and after a suspend (owner confirmed, speakersafetyd protection active throughout)",
+        "Overnight on battery, lid closed: 7.14 h, 99.6% in S2R, 0.375 W average"
+      ],
+      "next": [
+        "Lid close/open wake, external display or dock, Bluetooth pairing and an SD card after a wake",
+        "Decide about the LUKS key stored in the UKIs (needs the passphrase at boot once removed)",
+        "Upstream PRs to aurora-silicon (kernel, Aura, U-Boot)"
+      ],
       "gate": "Shipped."
     }
   ],
@@ -207,7 +219,7 @@
     { "name": "AOP", "state": "works", "known": "The macOS handshake (queues stopped, `SetAPPower` 0x201) before the sleep, `SetAPPower` ON and the queues started again from syscore resume, before the secondaries come back; works in every real S2R wake.", "next": "Nothing pending" },
     { "name": "Secondary CPUs", "state": "works", "known": "CPU_OFF parks the core in Aura’s retention deep WFI loop; CPU_ON hands it back through the spin table, with `CYC_OVRD` restored first. 20 of 20 suspend cycles with all nine.", "next": "Runtime hotplug outside suspend; RVBAR re-entry after real power loss" },
     { "name": "PMGR quiesce, S2R timer", "state": "works", "known": "Aura's commit puts the SoC into SLP_S2R (the PMGR counter counts it) and the RTC alarm wakes it through RVBAR, every run since R57AL. The long hunt (the 75-86 s resets, runs D to R22B) ended once the remaining entry state was in place.", "next": "Long sleeps and repeatability" },
-    { "name": "Devices", "state": "partial", "known": "After a real cut: NVMe, USB, SMC, RTC, SEP, keyboard and PMP work. Wi-Fi/BT and the SD reader stay unpowered. The display is untested.", "next": "Phase 4" }
+    { "name": "Devices", "state": "works", "known": "After a real cut on 7.3.0-s2r73+ (R62Y-4, zero userspace unbinds): NVMe, USB, SMC, RTC, SEP, PMP, Wi-Fi, Bluetooth (40 LE devices), SD card (6.6 MB/s), internal display + backlight (warm DCP restart, visually confirmed), and bound G14S GPU all work.", "next": "Live desktop GPU rendering, speaker audio playback, external display (dcpext), and overnight battery drain" }
   ],
   "images": [
     { "n": "16", "what": "`SYSTEM_SUSPEND` stub: a fixed 3 s wait, then back through `cpu_resume`", "result": "20 of 20 cycles, after the EFI virtmap unwind fix", "outcome": "pass" },
@@ -347,6 +359,37 @@
     { "what": "macOS 15.7.1", "value": "0.24 W", "detail": "5.9 h, 98.7% of it in S2R" }
   ],
   "findings": [
+    { "title": "A night on battery: 0.375 W, 99.6% of it in S2R", "body": "With the lid closed on the real Omarchy desktop, the Mac spent 7.14 h asleep and was in S2R for 99.6% of that time, using 2.679 Wh (5% of the battery, 70% to 65%): 0.375 W on average. The old s2idle figure on this Mac was about 1.48 W; macOS about 0.24 W. One night, one run. A GPU client drawing across 10 sleeps also came back every time, the case another tester had reported as hanging on the second sleep." },
+    { "title": "S2R is now the default boot, with working speakers", "body": "Aura 129 passes the Mac's real amplifier levels, the speaker driver unlocks with speaker protection running, and the owner heard a quiet tone before and after a suspend. Aura 129 is now the permanent `boot.bin` and a plain reboot (no test flag) lands in the S2R kernel. The stock images stay on the ESP for recovery." },
+    { "title": "Real S2R from the live Omarchy desktop works (7.3.0-s2r73+, Aura 128)", "body": "A real `systemctl suspend` in Hyprland slept 997.8 s (16 min 38 s) in SLP_S2R and woke with Hyprland, GPU rendering, display and backlight, Wi-Fi, Bluetooth, SD, NVMe, USB, PMP and SEP all working and no errors. Every device now returns with zero userspace unbinds. Aura 129 (real amp levels from the Mac's device tree, so the speakers can be enabled safely) is booted and reports 'Speaker volumes unlocked'; the playback check before and after a suspend is next." },
+    { "title": "The PCIe shutdown isn't needed; one change was the whole fix (R61R)", "body": "A third run, this time without the orderly PCIe shutdown before the sleep. Wi-Fi, Bluetooth and the SD reader came back again and Wi-Fi rejoined the network: 3 of 3. So the fix is one change in our sleep entry: Aura leaves the PCIe power domains on at the commit. The existing relink after the wake does the rest." },
+    { "title": "Wi-Fi joins the network after a real S2R, 2 of 2 (R61Q)", "body": "A repeat of R61P with a Wi-Fi check after the wake. Both links trained on the first relink again. Wi-Fi scanned 51 networks and joined the home network on its own, about 20 s after the wake. Bluetooth and the SD controller came up as well." },
+    { "title": "Wi-Fi, Bluetooth and the SD reader come back after a real S2R (R61P)", "body": "The cause was our own sleep entry. Since image 64, Aura powered off the three PCIe power domains (apcie_gp_sys, apcie_gpshr_sys, apcie_gp) at the commit, because macOS has them off at that point. With that step left out (aura-ctl bit 20), the sleep still commits (PMU 0x601f = aa, NVMe cold-starts) and both links train on the first relink after the wake. The BCM4388 loads its firmware, Bluetooth comes up as hci0, and the SD controller is found again. The SMC's MEPS 1 after waka is normal: macOS shows it too." },
+    { "title": "macOS's PCIe shutdown before the sleep doesn't bring Wi-Fi back (R61O)", "body": "Before the sleep, Linux now powers down the Wi-Fi and SD reader links in an orderly way, as macOS does: the devices go to their low-power state, the links into L2, reset held and clock off. All of it ran cleanly, but after the wake the links still never find a device. The PCIe side now matches a machine where Wi-Fi does come back, so the missing piece is the power to the devices, which the SMC still holds off." },
+    { "title": "Holding the radio in reset through the sleep changes nothing (R61N)", "body": "The newer Apple sleep drivers hold the Wi-Fi chip in reset during the sleep and release it after. Our wake already resets and re-powers the slot before every relink attempt, and the links still never train. Wi-Fi and the SD reader stay blocked on the SMC's sleep power state; we are waiting on answers from people whose machines get their radios back." },
+    { "title": "SMC stays in its sleep state even with the display back (R61M7)", "body": "With the display coprocessor restored, the SMC still reports its sleep power state after the wake, and Wi-Fi and SD stay off. The SMC's state machine can't be moved from the AP, and iBoot (which might do it on a cold boot) is encrypted. Wi-Fi/SD after S2R is blocked." },
+    { "title": "Internal display comes back after a real S2R (R61M6)", "body": "After the wake the display coprocessor is cold-started from clean firmware data, and Linux plays iBoot's part (panel power-on, set mode) before the normal start. The display driver then starts fully: panel detected, 6 modes, panel rail back at 1.29 V, no crash. Wi-Fi and SD still do not come back; the display was not what blocks them." },
+    { "title": "Internal display's iBoot service answers after the wake (R61M5)", "body": "After the cold restart, Linux can now talk to the internal display coprocessor's iBoot service. The panel reported as unplugged because it was not yet powered. R61M6 powers it on first, then sets the mode." },
+    { "title": "DCP firmware wants iBoot's display session first (R61M4)", "body": "Reading the DCP firmware shows the display driver start checks a flag that only iBoot's display session sets. A copy of the firmware data taken at boot does not restart. R61M5 has Linux play iBoot's part (power on, set mode) before the normal start." },
+    { "title": "DCP firmware cold-boots after the wake (R61M3)", "body": "With a clean data segment plus iBoot's boot arguments, the display coprocessor's firmware restarts cleanly after a real S2R and all its services start. The display driver then refuses because iBoot did not bring the panel up this time. R61M4 restores the state iBoot hands over instead." },
+    { "title": "DCP restart: assert gone with pristine data (R61M2)", "body": "Restoring the DCP firmware's data segment from macOS's file stops the crash after the wake, but the firmware then stays silent. It has lost the boot arguments iBoot writes into a tagged block (bArg and others). R61M3 keeps that block." },
+    { "title": "DCP firmware addresses confirmed (R61M)", "body": "After the wake, the firmware code in memory matches macOS's DCP file except for 2 words, so the addresses are right. A check that was too strict left the data segment unrestored, so the restart crashed as before. R61M2 restores it." },
+    { "title": "DCP firmware data segment located (R61L)", "body": "The live ADT gives the DCP firmware's segments: __TEXT at 0x10000230000 (6 MB) and __DATA at 0x107d2c94000 (3 MB). They match macOS's DCP.img4 exactly, so the restart after the wake can begin from a pristine __DATA. R61M tests that." },
+    { "title": "The display firmware needs a clean copy of its memory to restart", "body": "Given back its old memory, the display firmware gets further but then trips over its own leftover state from before the sleep. macOS has a way to put the firmware's memory back to a clean copy before restarting it. The next test reads the boot loader's description of that memory, so we can save a clean copy at boot and restore it after the wake." },
+    { "title": "The display firmware crashes when its services are set up a second time", "body": "The display firmware survives the restart itself, but crashes as soon as the driver sets up its services again with new memory, because the firmware still remembers the old setup. The next test gives it back exactly the memory it had before the sleep, one service at a time." },
+    { "title": "The display firmware now restarts cleanly after the wake", "body": "Keeping the display firmware's buffers as they were across the sleep (the same trick as for the storage controller) lets it restart after a real sleep without crashing. The display itself is not back yet: the next test starts the display service and turns the panel on." },
+    { "title": "The display firmware starts again after the wake, then crashes", "body": "For the first time, the display coprocessor's firmware started again after a real sleep: its boot address survives the power cut, and it completed its startup handshake. A few milliseconds later it crashed in its shared-memory code, most likely because it restarts on top of the memory it had before the sleep. The next test keeps its buffers as they were, which is what made the same restart work for the storage controller." },
+    { "title": "First real restart of the display firmware after the wake", "body": "A full read of every PCIe controller and PHY register found nothing the wake path misses on the controller side. The one setting that still differs from macOS after its wake comes back on another tester's machine when the display firmware is restarted, and the display needs that restart anyway. The test kernel now cold-starts the display firmware after the wake; the next test checks whether the screen's power and the Wi-Fi/SD slots come back with it." },
+    { "title": "Resetting the PCIe controller on the wake path did not bring the slots back", "body": "A new boot-loader build powers the PCIe controller fully off on the wake path and sets it up again from scratch. That worked mechanically, but the Wi-Fi and SD links still do not come up. The next test reads every PCIe controller and PHY register before and after the sleep, not just the ones macOS sets, to find what is left over." },
+    { "title": "The sleep never resets the PCIe controller", "body": "The power-state dump shows the PCIe controller is only clock-gated during the sleep, never powered off, so it keeps leftover state that a cold boot never has. Restarting the display driver after the wake did not help. The next test powers the PCIe controller fully off on the wake path before setting it up again, as a cold boot does." },
+    { "title": "Every PCIe power domain comes back after the wake", "body": "All 374 PMGR power-state registers macOS programs were read before the sleep and after the wake. The PCIe domains are all fully on after the wake; only the 'was gated' flags differ. So the Wi-Fi/SD slots are not missing a power domain. Next: restart the display firmware after the wake, since a running display firmware may be what restores a PMU setting macOS has after its wake and we do not." },
+    { "title": "Our test kernel stops the display firmware for every sleep and never restarts it", "body": "A test switch added early on shuts the display coprocessor's firmware down before each deep sleep and leaves it off after the wake. Another tester found on his machine that the missing power rail comes back only when that firmware is restarted. The next test sleeps with the firmware left running." },
+    { "title": "A runtime power cut can be recovered; a sleep cannot (yet)", "body": "After cutting the Wi-Fi and SD power on a running system, our PCIe relink brings both devices back. After a real sleep the same relink finds no device at all, so the sleep turns off something more, most likely a supply rail. The next test checks whether that rail depends on the display coprocessor, as another tester found on a similar Mac." },
+    { "title": "The Wi-Fi/SD failure reproduces without a sleep", "body": "Switching the Wi-Fi radio's power (REG_ON) or the SD reader's power off and on again on a running system leaves both links in Detect and the devices unreadable, exactly as after a wake. So the fault is in how the slots are brought back after any power loss, and it can now be tested in 2-minute boots instead of full sleep cycles." },
+    { "title": "macOS 13.5 boots fully under our hypervisor with PCIe on", "body": "For the first time macOS ran to its lock screen under the m1n1-based hypervisor with the Wi-Fi and SD slots enabled (14.8.9 hung during boot). At boot it powers the two slots with the same two SMC writes Linux uses (SD power gP16 and Wi-Fi REG_ON gP0d), so nothing is missing at boot. Next: trace a macOS sleep and wake with the PMU and PCIe traced." },
+    { "title": "R60M: Wi-Fi, BT and SD are gone after the wake even with their drivers unbound", "body": "With brcmfmac, hci_bcm4377 and sdhci-pci unbound before the sleep, all three devices still read ffffffff after the wake and the links stay in Detect. So it is not the drivers' suspend path. nekolyanich's M2 Max answers after its wake; the remaining lead is the VR3l rail (1.29 V before, 0.005 V after), which on his machine comes back with a display-coprocessor restart. Next: the macOS 13.5 trace." },
+    { "title": "R60L: the SMC's VDD_CIO switch (pmVC) is not what keeps Wi-Fi and SD down", "body": "After the wake, six pmVC values (0x1ff, 0x1fff, 0x10f, 0x180, 0x0, 0x101) were written and the PCIe links retried after each. Every write was accepted, but both links stayed in Detect and the SMC's power state (MEPS 000102010004) never changed. Next lead: trace macOS 13.5 bringing the slots up under the m1n1 hypervisor, as DJ suggests." },
+    { "title": "R60K: Andreas Fernandez's apcie quiesce handshake makes no difference", "body": "Aura image 125 does the PCIe handshake from his M1 Pro sleep code (macOS quiesceHW step 24b) at our guessed M2 Pro address, 0x59c008014 / 0x59c0082bc, and puts it back at the wake. It ran (crumbs 07), the wake worked, but Wi-Fi and the SD reader still stay in Detect and the SMC still reports MEPS 000102010004. Both words read 0 before the sleep, so the M2 Pro offsets may differ." },
     { "title": "R60J: the wake works without the 0x50 boot stage; Wi-Fi power still off", "body": "Skipping the PMU boot stage that macOS 13.5 sets for sleep makes no difference: the Mac sleeps and wakes the same, and the SMC still stays in its sleep power state. A PMU comparison within one boot confirms which power-enable bits stay off after the wake." },
     { "title": "R60I: the PCIe controller comes back exactly; Wi-Fi's power doesn't", "body": "Every PCIe controller, port and PHY register reads the same before the sleep and after the wake, so the controller side is fully restored. The Wi-Fi module and SD reader stay unpowered because the SMC and PMU stay in a sleep power state after the wake, which we can't change from Linux. We've asked nekolyanich and Andreas Fernandez what their machines show." },
     { "title": "R60H: SD reader power cut across the sleep, no change", "body": "The SD power was switched off before the sleep and back on at the wake as planned, and the SMC sequence now matches Andreas Fernandez's M1 Pro one. Wi-Fi and the SD reader still don't show up on PCIe. Since both fail the same way, R60I compares the PCIe controller's registers before the sleep and after the wake." },
@@ -494,7 +537,8 @@
     { "title": "R55B: 0x600c=00 confirmed without psci_force_ps/replay_mem, still no wake; audit found five combined entry bugs fixed in image 102", "body": "2026-11-18 (image 101, fifth aura-ctl word 121): PCIe/AON domains stayed OFF (0x600c=00) with all 9 secondaries held awake (0x077e), still reset +76 s to kernel (+85 s return). Live scan + code audit found five combined gaps: (1) 47 macOS-OFF domains (ANE_SYS/CPU, ISP_SYS, GFX, ATC3_USB, SIO_ADMA, I2C*, MTP_DMA) stayed on without force_ps; (2) old force_ps only cleared target bits 0..3 and never cleared BIT(28) AUTO_ENABLE (so ANE_SYS/CPU and GFX stayed on even when run); (3) disabling replay_mem dropped PCIe RC teardown (0x59e008000.., 0x59c000400), AMCC/SLC drain, PMP DVFS idle, AOP GPIO IRQ clear, and error-handler zeros, while qs_macos_mem.h also re-enabled APCIE_GE_SYS and SIO_CPU; (4) psci_quiesce_asc() ran after AFR/PMP/clocks went off; (5) cpu_sleep_deep_extra set IRQ_MODE=2 | FIQ_MODE=2 on CPU0 instead of keeping 0 for wake routing (unlike macOS and Ante042)." },
     { "title": "R56A: FIRST RVBAR WAKE EVER on T6020 (image 102, 0x6004=0x22, +73 s to kernel)", "body": "2026-11-18 (image 102, fifth aura-ctl word 241, alarm +40 s): with all 110 macOS-OFF PMGR domains lowered including BIT(28) AUTO_ENABLE (0x6014=00, 0x601f=00, 0x600c=00, 0x6011=50), early psci_quiesce_asc(), early psci_quiesce_pcie_rc(), filtered psci_replay_mem_clean(), and WFE edge-hold (0x077e), PMU scratch 0x6004 reached 0x22 for the first time in 56 runs: CPU0 woke through RVBAR into psci_suspend_rvbar() with psci_resume.magic intact, completed psci_quiesce_undo(), armed RESUME_WDT_S, and entered Linux cpu_resume via psci_enter(). Main kernel booted at +73 s (+33 s after the +40 s alarm, earlier than every +76/+77 s WD2 reset); Linux panicked during resume as expected before resume-side fixes. Note: smp_psci_edge_release_and_sleep() calls cpu_sleep(true) directly, so CPU0 still had IRQ/FIQ_MODE=2 and still woke. Next: R56B (+90 s alarm + RVBAR PMGR SLP_S2R/elapsed/wake telemetry) to confirm genuine >60 s SLP_S2R sleep past WD2." },
     { "title": "R56B: FIRST REAL HARDWARE SLP_DDR SLEEP CONFIRMED (2/2 RVBAR wake); immediate wake caused by unacked SPMI_IRQ_NOTIFY (bit 54 NUB.SPMI0Sw3IRQ)", "body": "2026-11-18 (image 103, fifth aura-ctl word 241, alarm +90 s): RVBAR telemetry proved the SoC genuinely completed S2R entry into hardware SLP_DDR (0x6008=fe, 0x600b=fe), disarmed WD2 (0x601b=00, 0x601c=00), lost AIC state (0x601e=ff), and woke CPU0 cleanly via RVBAR (0x6004=0x22, psci_dbg[12]=1) for the second consecutive run. It woke in <1 s (0x6005/6=0000) solely on AP wake source bit 54 (0x6015=0x36, 0x6016=0x01 = NUB.SPMI0Sw3IRQ), explaining the identical +73 s return in R56A (+40 s) and R56B (+90 s) (~2 s suspend + immediate wake + ~60 s SMC wake timeout + ~11 s boot). Root cause: qs_crumb_write() never W1C-acks SPMI_IRQ_NOTIFY (0x29e114080 bit 0, verified 0x08000001 live) while spmi-apple and PSCI_S2R_SPMINOTIFY leave 0x29e114040 bit 0 enabled. Image 104 (R56C, +80 s alarm) acks 0x29e114080/0x29e154080." },
-    { "title": "R56C: FIRST REAL HARDWARE SLP_S2R SLEEP (77 s) + RTC ALARM WAKE INTO LINUX ON M2 PRO (T6020 / J414s)!", "body": "2026-11-18 (image 104, fifth aura-ctl word 241, alarm +80 s): W1C-acking SPMI_IRQ_NOTIFY (0x29e114080/0x29e154080) eliminated the immediate wake from R56B. Hardware PMGR counters proved 77 FULL SECONDS in SLP_S2R (0x4d) and 77 s in SYS_S2R_AOP (0x4d), 78 s elapsed cntpct_el0 (0x004e, 18 s past WD2's 60 s bite), WD2 disarmed (ctl=00), woken cleanly by the +80 s PMU RTC alarm (sole AP wake source bit 54 NUB.SPMI0Sw3IRQ, AIC line 724), returning through RVBAR (0x6004=0x22, 3/3). Linux resumed through cpu_resume, syscore_resume, dpm_resume_noirq, and macsmc_reboot_pm_resume_early() (PMU BootErrorStage 0x6003=0x30 'OS running') before stalling ~60 s later in unported device resume (main kernel at +151 s, away 225 s). Next: Image 105 (R57A) restores psci_force_ps_lower() domains and brings all 9 cold-powered secondary CPUs back via RVBAR+CPUSTART." }
+    { "title": "R56C: FIRST REAL HARDWARE SLP_S2R SLEEP (77 s) + RTC ALARM WAKE INTO LINUX ON M2 PRO (T6020 / J414s)!", "body": "2026-11-18 (image 104, fifth aura-ctl word 241, alarm +80 s): W1C-acking SPMI_IRQ_NOTIFY (0x29e114080/0x29e154080) eliminated the immediate wake from R56B. Hardware PMGR counters proved 77 FULL SECONDS in SLP_S2R (0x4d) and 77 s in SYS_S2R_AOP (0x4d), 78 s elapsed cntpct_el0 (0x004e, 18 s past WD2's 60 s bite), WD2 disarmed (ctl=00), woken cleanly by the +80 s PMU RTC alarm (sole AP wake source bit 54 NUB.SPMI0Sw3IRQ, AIC line 724), returning through RVBAR (0x6004=0x22, 3/3). Linux resumed through cpu_resume, syscore_resume, dpm_resume_noirq, and macsmc_reboot_pm_resume_early() (PMU BootErrorStage 0x6003=0x30 'OS running') before stalling ~60 s later in unported device resume (main kernel at +151 s, away 225 s). Next: Image 105 (R57A) restores psci_force_ps_lower() domains and brings all 9 cold-powered secondary CPUs back via RVBAR+CPUSTART." },
+    { "title": "R62P: Clean non-TEST Aurora 7.3.0 + Aura 128 real S2R commit and full wake (NVMe, USB-C, SMC, Wi-Fi 54 BSSes, BT, SD, internal DCP)", "body": "2026-11-25 (7.3.0-s2r73+ on omacom/linux-aurora integration/aurora-7.3 + Aura image 128 with bit 20 dropped as default 0xc16dcb3f, zero aura-ctl or TEST switches): real S2R commit and RTC alarm wake (dur=34.4 s, SLP_S2R=23.10 s, 0x601f=aa, 0x6011=50 PMP+SEP gated, all 10 CPUs online). Key 7.3.0 fixes: enabled aic2_info.fw_suspend=true for AIC2 syscore save/restore, T6020 WKTP + 0x29e00400c wake mask in macsmc.c, noirq_direct SEP SLEEP with s2r_sleep_keep=afr,gpio,sep, and non-TEST internal DCP cold restart (0x7410c8+0x51c). NVMe live (31.6 MB/s), USB-C Logi Bolt live, both PCIe links up on try 1 (0x9b000211), Wi-Fi associated (ch 40, 54 BSSes), hci0 + mmc0 present, internal DCP cold-restarted (connected:1, 6 modes). Next: owner checks (BT pairing, SD card, visual display), apple_pmp/dcp_poweron + G14S aurora GPU warm restart for full desktop suspend, and overnight drain." }
   ],
   "rules": [
     "Never remove and rescan PCI devices: it kills Wi-Fi until a reboot.",
@@ -506,8 +550,7 @@
     "Test GRUB entries use `panic=0`, so a panic hangs and the watchdog stamps tell where it died."
   ],
   "unknowns": [
-    "What returns the SMC to its awake power state (`MEPS` 4) after `waka`. On this Mac it stays at 1 with the PMU in what looks like its sleep state, and the Wi-Fi/BT and SD reader rails stay off. macOS's SMC and PMU drivers send nothing else that we can find.",
-    "Whether the display (DCP) can be shut down and restarted across a real cut.",
+    "Bluetooth pairing and an SD card after the wake (the controllers come back; nothing was paired or inserted yet).",
     "Drain in real S2R over a whole night.",
     "What the PMP's VLPM tunables control."
   ],
@@ -522,7 +565,7 @@
     { "who": "Andreas Fernandez (Ante042)", "how": "His M1 Pro (T6000) suspend-to-RAM branch and notes, `t600x-s2r-reference`, are the reference we compare every step against: the SMC sequence (pmVC, WKTP, SD power around `slpa`), the NVMe/ANS cold start after the wake, the core sleep overrides and the thin stage 1." },
     { "who": "DJ (DjDeveloperr, Diljit Singh)", "how": "Suspend-to-RAM groundwork on Apple silicon and the T6050/T8140 sleep work in aurora-silicon/linux: macOS traces of the sleep commit, the radio and SD reader handling, and the AP GPIO restore order." },
     { "who": "Naeem Malik (malik-na)", "how": "S2R research on the M1 (m1-power-lab), the answer that iBoot arms the wake path for a raw image, and the brcmfmac D3 fixes now in linux-aurora." },
-    { "who": "nekolyanich", "how": "Native S2R on the M2 Pro J416s and detailed answers on issue #5: the apcie re-init at the wake, the PCIe resume order, ps_sep, RVBAR locking." },
+    { "who": "nekolyanich", "how": "Native S2R on the M2 Pro J416s and detailed answers on issue #5: the apcie re-init at the wake, the PCIe resume order, ps_sep, RVBAR locking. Also the J416s comparison of the post-wake state with macOS's (MEPS, PMU 0x200/0x1300, 0x2505, rail VR3l) and the finding that the DCP firmware must be restarted after the cut." },
     { "who": "František Balázsy (fbalazsy)", "how": "The T6040 AP GPIO restore order (each pin's config, then its input enable, the lock last) that Aura's wake path uses, and the warning about an interrupt storm from a reset GPIO block." },
     { "who": "muness", "how": "The PMP tunable headroom in m1n1 and Aura (aurora-silicon/m1n1#63, aura#268); our daily boot.bin is that build." },
     { "who": "Erik Bourget, Jens Axboe, Ryan Murray and the other aurora-silicon authors", "how": "The T6050 sleep driver, pcie-apple's sleep paths, macsmc's sleep policy, i2c-pasemi runtime PM and the M4 Pro (T6040) sleep PR in aurora-silicon/linux, which we read and borrow from." },
